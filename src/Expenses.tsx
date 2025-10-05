@@ -160,7 +160,7 @@ const Expenses = () => {
               />
             </div>
             <p className="mt-2 text-xs text-slate-400">
-              Limit: {formatCurrency(planningMetrics.weeklyLimit)} · Kullanım: {planningMetrics.weeklyProgress * 100 < 1 ? (planningMetrics.weeklyProgress * 100).toFixed(1) : Math.min(planningMetrics.weeklyProgress * 100, 999).toFixed(1)}%
+              Limit: {formatCurrency(planningMetrics.weeklyLimit)} · Kullanım: {(Math.min(planningMetrics.weeklyProgress * 100, 999)).toFixed(1)}%
             </p>
           </div>
 

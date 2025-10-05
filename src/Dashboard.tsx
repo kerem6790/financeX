@@ -143,7 +143,10 @@ const Dashboard = () => {
             <h3 className="text-lg font-semibold text-slate-800">Özet</h3>
             <ul className="mt-4 space-y-3 text-sm text-slate-600">
               <li>• Esnek Harcama Limiti: {formatCurrency(planningMetrics.flexibleSpending)}</li>
-              <li>• Haftalık Limit: {formatCurrency(planningMetrics.weeklyLimit)}</li>
+              <li>
+                • Haftalık Limit: {formatCurrency(planningMetrics.weeklyLimit)} ({(planningMetrics.weeklyProgress * 100).toFixed(1)}% kullanıldı)
+              </li>
+              <li>• Haftalık Harcama: {formatCurrency(planningMetrics.weeklySpend)}</li>
               <li>• Kalan Hedef: {formatCurrency(planningMetrics.remainingGoal)}</li>
             </ul>
           </div>

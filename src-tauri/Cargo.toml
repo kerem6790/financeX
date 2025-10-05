@@ -11,6 +11,7 @@ tauri-build = { version = "1", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "1", features = [] }
+rusqlite = { version = "0.30.0", features = ["bundled"] }
 
 [features]
 default = ["custom-protocol"]

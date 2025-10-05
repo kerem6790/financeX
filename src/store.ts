@@ -95,6 +95,24 @@ const createSpendingEntry = (payload: Omit<SpendingEntry, 'id' | 'createdAt'>): 
   ...payload
 });
 
+export type ExtraIncomeType = 'Gerçekleşen' | 'Tahmini';
+
+export interface ExtraIncomeEntry {
+  id: string;
+  source: string;
+  amount: string;
+  type: ExtraIncomeType;
+  date: string;
+  notes?: string;
+  createdAt: number;
+}
+
+const createExtraIncomeEntry = (payload: Omit<ExtraIncomeEntry, 'id' | 'createdAt'>): ExtraIncomeEntry => ({
+  id: generateId(),
+  createdAt: Date.now(),
+  ...payload
+});
+
 const ensureIsoDate = (value: string): string => {
   if (!value) {
     return new Date().toISOString().slice(0, 10);
@@ -124,6 +142,35 @@ const isWithinLastSevenDays = (value: string): boolean => {
 
 const calculateWeeklySpend = (entries: SpendingEntry[]): number =>
   entries.reduce((sum, entry) => sum + (isWithinLastSevenDays(entry.date) ? parseAmount(entry.amount) : 0), 0);
+
+const normaliseSpendingEntry = (entry: Partial<SpendingEntry>): SpendingEntry => {
+  const category = EXPENSE_CATEGORIES.includes(entry.category as ExpenseCategory)
+    ? (entry.category as ExpenseCategory)
+    : 'Diğer';
+
+  return {
+    id: entry.id ?? generateId(),
+    category,
+    description: entry.description ?? '',
+    amount: entry.amount ?? '',
+    date: ensureIsoDate(entry.date ?? ''),
+    createdAt: entry.createdAt ?? Date.now()
+  };
+};
+
+const normaliseExtraIncomeEntry = (entry: Partial<ExtraIncomeEntry>): ExtraIncomeEntry => {
+  const type = (entry.type as ExtraIncomeType) === 'Tahmini' ? 'Tahmini' : 'Gerçekleşen';
+
+  return {
+    id: entry.id ?? generateId(),
+    source: entry.source ?? '',
+    amount: entry.amount ?? '',
+    type,
+    date: ensureIsoDate(entry.date ?? ''),
+    notes: entry.notes ?? '',
+    createdAt: entry.createdAt ?? Date.now()
+  };
+};
 
 const createPlanningExpense = (): FixedExpense => ({
   id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `fx-${Math.random().toString(36).slice(2, 9)}`,
@@ -262,6 +309,7 @@ interface ExpenseState {
   entries: SpendingEntry[];
   addExpense: (payload: Omit<SpendingEntry, 'id' | 'createdAt'>) => void;
   removeExpense: (id: string) => void;
+  setEntries: (entries: Partial<SpendingEntry>[]) => void;
 }
 
 export const useExpenseStore = create<ExpenseState>((set, get) => ({
@@ -282,6 +330,14 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
   },
   removeExpense: (id) => {
     set((state) => ({ entries: state.entries.filter((entry) => entry.id !== id) }));
+    triggerPlanningRecalculate();
+  },
+  setEntries: (entries) => {
+    const normalised = entries.map(normaliseSpendingEntry).sort((a, b) =>
+      a.date === b.date ? b.createdAt - a.createdAt : b.date.localeCompare(a.date)
+    );
+
+    set({ entries: normalised });
     triggerPlanningRecalculate();
   }
 }));
@@ -381,6 +437,121 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
     });
   }
 }));
+
+interface ExtraIncomeState {
+  entries: ExtraIncomeEntry[];
+  addEntry: (payload: Omit<ExtraIncomeEntry, 'id' | 'createdAt'>) => void;
+  updateEntry: (id: string, updates: Partial<Omit<ExtraIncomeEntry, 'id' | 'createdAt'>>) => void;
+  removeEntry: (id: string) => void;
+  setEntries: (entries: Partial<ExtraIncomeEntry>[]) => void;
+}
+
+export const useExtraIncomeStore = create<ExtraIncomeState>((set) => ({
+  entries: [],
+  addEntry: (payload) => {
+    const entry = createExtraIncomeEntry({ ...payload, date: ensureIsoDate(payload.date) });
+    set((state) => ({
+      entries: [entry, ...state.entries].sort((a, b) =>
+        a.date === b.date ? b.createdAt - a.createdAt : b.date.localeCompare(a.date)
+      )
+    }));
+  },
+  updateEntry: (id, updates) => {
+    set((state) => ({
+      entries: state.entries
+        .map((entry) => (entry.id === id ? normaliseExtraIncomeEntry({ ...entry, ...updates }) : entry))
+        .sort((a, b) => (a.date === b.date ? b.createdAt - a.createdAt : b.date.localeCompare(a.date)))
+    }));
+  },
+  removeEntry: (id) => {
+    set((state) => ({ entries: state.entries.filter((entry) => entry.id !== id) }));
+  },
+  setEntries: (entries) => {
+    const normalised = entries.map(normaliseExtraIncomeEntry).sort((a, b) =>
+      a.date === b.date ? b.createdAt - a.createdAt : b.date.localeCompare(a.date)
+    );
+    set({ entries: normalised });
+  }
+}));
+
+export interface PersistedFinanceState {
+  entries: Entry[];
+  usdRate: string;
+}
+
+export interface PersistedPlanningState {
+  goal: string;
+  monthlyIncome: string;
+  expenses: FixedExpense[];
+}
+
+export interface PersistedExpenseState {
+  entries: SpendingEntry[];
+}
+
+export interface PersistedExtraIncomeState {
+  entries: ExtraIncomeEntry[];
+}
+
+export interface PersistedState {
+  finance: PersistedFinanceState;
+  planning: PersistedPlanningState;
+  expenses: PersistedExpenseState;
+  extraIncome: PersistedExtraIncomeState;
+}
+
+export const getPersistedState = (): PersistedState => ({
+  finance: {
+    entries: useFinanceStore.getState().entries,
+    usdRate: useFinanceStore.getState().usdRate
+  },
+  planning: {
+    goal: usePlanningStore.getState().goal,
+    monthlyIncome: usePlanningStore.getState().monthlyIncome,
+    expenses: usePlanningStore.getState().expenses
+  },
+  expenses: {
+    entries: useExpenseStore.getState().entries
+  },
+  extraIncome: {
+    entries: useExtraIncomeStore.getState().entries
+  }
+});
+
+export const hydrateFromPersistedState = (persisted: Partial<PersistedState>) => {
+  const finance = persisted.finance;
+  if (finance) {
+    useFinanceStore.setState((state) => ({
+      entries: finance.entries ?? state.entries,
+      usdRate: finance.usdRate ?? state.usdRate
+    }));
+  }
+
+  const expenses = persisted.expenses;
+  if (expenses) {
+    useExpenseStore.getState().setEntries(expenses.entries ?? []);
+  }
+
+  const planning = persisted.planning;
+  if (planning) {
+    usePlanningStore.setState(() => ({
+      goal: planning.goal ?? '',
+      monthlyIncome: planning.monthlyIncome ?? '',
+      expenses:
+        planning.expenses && planning.expenses.length > 0
+          ? planning.expenses
+          : [createPlanningExpense()]
+    }));
+  }
+
+  const extraIncome = persisted.extraIncome;
+  if (extraIncome) {
+    useExtraIncomeStore.getState().setEntries(extraIncome.entries ?? []);
+  }
+
+  useFinanceStore.getState().autoCalculateTotals();
+  usePlanningStore.getState().recalculate();
+};
 
 function triggerPlanningRecalculate() {
   try {
