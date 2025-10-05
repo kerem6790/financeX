@@ -7,6 +7,7 @@ import {
   useExpenseStore,
   usePlanningStore
 } from './store';
+import { buildMonthlySpendingInsight } from './analytics';
 
 const todayIso = new Date().toISOString().slice(0, 10);
 
@@ -25,6 +26,20 @@ const Expenses = () => {
     () => entries.reduce((sum, entry) => sum + parseAmount(entry.amount), 0),
     [entries]
   );
+
+  const monthlyInsight = useMemo(() => buildMonthlySpendingInsight(entries), [entries]);
+  const trendClass = monthlyInsight.trendTone === 'positive'
+    ? 'text-emerald-600'
+    : monthlyInsight.trendTone === 'negative'
+      ? 'text-rose-600'
+      : 'text-slate-500';
+
+  let trendMessage = 'Harcamalar dengede 👍';
+  if (monthlyInsight.trendTone === 'negative' && monthlyInsight.percentageChange > 10) {
+    trendMessage = 'Harcama oranı yükseldi ⚠️';
+  } else if (monthlyInsight.trendTone === 'positive') {
+    trendMessage = 'Harcamalarda iyileşme 👏';
+  }
 
   const categoryTotals = useMemo(() => {
     const totals = new Map<ExpenseCategory, number>();
@@ -65,6 +80,29 @@ const Expenses = () => {
       <div className="rounded-[28px] bg-white p-8 shadow-fx-card transition-shadow duration-300 hover:shadow-xl">
         <h2 className="text-xl font-semibold text-slate-900">Harcamalar</h2>
         <p className="mt-1 text-sm text-slate-500">Haftalık giderlerinizi kaydedin ve limitlerinizi takip edin.</p>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Bu ayki toplam harcama
+            </span>
+            <p className="mt-2 text-lg font-semibold text-slate-800">
+              {formatCurrency(monthlyInsight.currentMonthTotal)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {monthlyInsight.currentMonthLabel}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Geçen aya göre değişim
+            </span>
+            <p className={`mt-2 text-lg font-semibold ${trendClass}`}>
+              {monthlyInsight.trendLabel}
+            </p>
+            <p className={`mt-1 text-xs ${trendClass}`}>{trendMessage}</p>
+          </div>
+        </div>
 
         <form className="mt-6 grid gap-4 md:grid-cols-[1fr,1fr,1fr,auto]" onSubmit={handleSubmit}>
           <div className="flex flex-col gap-2">

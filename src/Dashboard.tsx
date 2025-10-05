@@ -1,60 +1,40 @@
 import { useMemo } from 'react';
-import { formatCurrency, useFinanceStore, usePlanningStore } from './store';
-
-const HISTORY_POINTS = [
-  { label: 'Hafta 1', value: 120_000 },
-  { label: 'Hafta 2', value: 128_500 },
-  { label: 'Hafta 3', value: 131_200 },
-  { label: 'Hafta 4', value: 135_800 },
-  { label: 'Hafta 5', value: 140_400 }
-];
-
-const clampProgress = (value: number): number => {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.min(Math.max(value, 0), 1);
-};
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
+import {
+  buildNetWorthTrend,
+  buildSuggestion,
+  formatCurrencyLabel
+} from './analytics';
+import { formatCurrency, useExpenseStore, useFinanceStore, usePlanningStore } from './store';
 
 const Dashboard = () => {
   const totals = useFinanceStore((state) => state.totals);
   const planningMetrics = usePlanningStore((state) => state.metrics);
   const currentGoal = usePlanningStore((state) => state.goal);
+  const expenses = useExpenseStore((state) => state.entries);
 
-  const chart = useMemo(() => {
-    const latestValue = totals.netWorth !== 0 ? totals.netWorth : HISTORY_POINTS[HISTORY_POINTS.length - 1]?.value ?? 0;
-    const series = [...HISTORY_POINTS, { label: 'Bugün', value: latestValue }];
-    const values = series.map((point) => point.value);
-    const max = Math.max(...values, latestValue, 1);
-    const min = Math.min(...values, 0);
-    const range = max - min || 1;
-    const denominator = series.length > 1 ? series.length - 1 : 1;
+  const netWorthTrend = useMemo(
+    () => buildNetWorthTrend(totals.netWorth, planningMetrics.weeklyLimit, planningMetrics.weeklySpend),
+    [planningMetrics.weeklyLimit, planningMetrics.weeklySpend, totals.netWorth]
+  );
 
-    const coordinates = series.map((point, index) => {
-      const x = (index / denominator) * 100;
-      const y = 100 - ((point.value - min) / range) * 100;
-      return { x, y };
-    });
+  const chartDelta = useMemo(() => {
+    if (netWorthTrend.length < 2) {
+      return 0;
+    }
+    const latest = netWorthTrend[netWorthTrend.length - 1]?.value ?? 0;
+    const previous = netWorthTrend[netWorthTrend.length - 2]?.value ?? latest;
+    return latest - previous;
+  }, [netWorthTrend]);
 
-    const path = coordinates.reduce((acc, coord, index) => (index === 0 ? `M ${coord.x} ${coord.y}` : `${acc} L ${coord.x} ${coord.y}`), '');
-    const areaPath = `${path} L 100 100 L 0 100 Z`;
-    const latest = series[series.length - 1];
-    const previous = series[series.length - 2] ?? latest;
-    const delta = latest.value - previous.value;
+  const suggestion = useMemo(() => buildSuggestion(expenses), [expenses]);
 
-    return {
-      series,
-      coordinates,
-      path,
-      areaPath,
-      delta
-    };
-  }, [totals.netWorth]);
-
-  const progress = clampProgress(planningMetrics.progressToGoal);
+  const progress = Number.isFinite(planningMetrics.progressToGoal)
+    ? Math.min(Math.max(planningMetrics.progressToGoal, 0), 1)
+    : 0;
   const goalValue = planningMetrics.goalValue || 0;
   const progressPercent = (progress * 100).toFixed(1);
-  const deltaLabel = `${deltaDirection(chart.delta)} ${formatCurrency(Math.abs(chart.delta))}`;
+  const deltaLabel = `${deltaDirection(chartDelta)} ${formatCurrency(Math.abs(chartDelta))}`;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-12">
@@ -64,7 +44,7 @@ const Dashboard = () => {
             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Net Worth</span>
             <span className="text-4xl font-semibold text-slate-900">{formatCurrency(totals.netWorth)}</span>
           </div>
-          <div className={`rounded-full px-4 py-1 text-sm font-semibold ${chart.delta >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>
+          <div className={`rounded-full px-4 py-1 text-sm font-semibold ${chartDelta >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>
             {deltaLabel}
           </div>
         </div>
@@ -87,35 +67,48 @@ const Dashboard = () => {
         <div className="overflow-hidden rounded-[28px] bg-white p-8 shadow-fx-card">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-slate-800">Net Worth Trend</h3>
-              <p className="text-sm text-slate-500">Son haftalardaki değişim (örnek veri)</p>
+              <h3 className="text-lg font-semibold text-slate-800">Net Değer Değişimi (₺)</h3>
+              <p className="text-sm text-slate-500">Haftalık bazda net değer hareketiniz.</p>
             </div>
           </div>
-          <div className="mt-8 h-60 w-full">
-            <svg viewBox="0 0 100 100" className="h-full w-full" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="networthGradient" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.7" />
-                  <stop offset="100%" stopColor="#2563eb" stopOpacity="0.1" />
-                </linearGradient>
-              </defs>
-              <path d={chart.areaPath} fill="url(#networthGradient)" opacity={0.6} />
-              <path d={chart.path} fill="none" stroke="#2563eb" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-              {chart.coordinates.map((point, index) => (
-                <circle
-                  key={`point-${point.x}-${point.y}`}
-                  cx={point.x}
-                  cy={point.y}
-                  r={index === chart.coordinates.length - 1 ? 1.6 : 1}
-                  fill={index === chart.coordinates.length - 1 ? '#2563eb' : '#94a3b8'}
+          <div className="mt-8 h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={netWorthTrend.map((point) => ({
+                  label: point.label,
+                  netWorth: Number(point.value.toFixed(2))
+                }))}
+                margin={{ top: 10, right: 30, left: 10, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="networthLine" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#2563eb" stopOpacity={0.8} />
+                    <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.1} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 8" vertical={false} />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: '#64748b', fontSize: 12 }}
+                  tickFormatter={(value) => formatCurrency(value).replace('₺', '')}
                 />
-              ))}
-            </svg>
-            <div className="mt-4 flex justify-between text-xs font-medium text-slate-400">
-              {chart.series.map((point) => (
-                <span key={point.label}>{point.label}</span>
-              ))}
-            </div>
+                <Tooltip
+                  formatter={(value: number) => formatCurrencyLabel(value)}
+                  labelStyle={{ fontWeight: 600 }}
+                  contentStyle={{ borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 18px 42px rgba(148,163,184,0.25)' }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="netWorth"
+                  stroke="url(#networthLine)"
+                  strokeWidth={3}
+                  dot={{ r: 3, fill: '#2563eb', strokeWidth: 0 }}
+                  activeDot={{ r: 5, stroke: '#0f172a', strokeWidth: 1, fill: '#2563eb' }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
@@ -149,6 +142,22 @@ const Dashboard = () => {
               <li>• Haftalık Harcama: {formatCurrency(planningMetrics.weeklySpend)}</li>
               <li>• Kalan Hedef: {formatCurrency(planningMetrics.remainingGoal)}</li>
             </ul>
+          </div>
+
+          <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
+            <h3 className="text-lg font-semibold text-slate-800">Akıllı Öneri</h3>
+            {suggestion ? (
+              <div className="mt-4 flex flex-col gap-3 text-sm text-slate-600">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  {suggestion.highlight}
+                </span>
+                <p>{suggestion.message}</p>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-slate-500">
+                Harcamalarınızı ekledikçe size özel öneriler burada görünecek.
+              </p>
+            )}
           </div>
         </div>
       </div>

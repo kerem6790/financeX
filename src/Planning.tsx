@@ -1,6 +1,9 @@
-import { formatCurrency, usePlanningStore } from './store';
+import { useMemo } from 'react';
+import { buildMotivationMessage, calculateEstimatedGoalDate, formatDate } from './analytics';
+import { formatCurrency, useFinanceStore, usePlanningStore } from './store';
 
 const Planning = () => {
+  const netWorth = useFinanceStore((state) => state.totals.netWorth);
   const goal = usePlanningStore((state) => state.goal);
   const monthlyIncome = usePlanningStore((state) => state.monthlyIncome);
   const expenses = usePlanningStore((state) => state.expenses);
@@ -10,6 +13,13 @@ const Planning = () => {
   const addExpense = usePlanningStore((state) => state.addExpense);
   const updateExpense = usePlanningStore((state) => state.updateExpense);
   const removeExpense = usePlanningStore((state) => state.removeExpense);
+
+  const estimatedDate = useMemo(
+    () => calculateEstimatedGoalDate(netWorth, metrics.goalValue, metrics.weeklyLimit, metrics.weeklySpend),
+    [metrics.goalValue, metrics.weeklyLimit, metrics.weeklySpend, netWorth]
+  );
+
+  const motivationMessage = useMemo(() => buildMotivationMessage(metrics.progressToGoal), [metrics.progressToGoal]);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-12">
@@ -148,6 +158,24 @@ const Planning = () => {
             <span className="text-xs text-slate-400">
               Haftalık harcama: {formatCurrency(metrics.weeklySpend)} / {formatCurrency(metrics.weeklyLimit)}
             </span>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Tahmini hedefe ulaşma tarihi
+              </span>
+              <p className="mt-2 text-sm font-semibold text-slate-800">{formatDate(estimatedDate)}</p>
+              {estimatedDate === null && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Haftalık tasarruf tutarınızı artırarak hedef tarihini netleştirebilirsiniz.
+                </p>
+              )}
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Motivasyon</span>
+              <p className="mt-2 text-sm text-slate-700">{motivationMessage}</p>
+            </div>
           </div>
         </div>
       </div>
