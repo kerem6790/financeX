@@ -26,6 +26,23 @@ export interface CreditCardMeta {
   debt: number;
 }
 
+export interface FixedExpense {
+  id: string;
+  category: string;
+  amount: string;
+}
+
+export interface PlanningMetrics {
+  goalValue: number;
+  incomeValue: number;
+  fixedTotal: number;
+  savingsQuarter: number;
+  flexibleSpending: number;
+  weeklyLimit: number;
+  remainingGoal: number;
+  progressToGoal: number;
+}
+
 const CREDIT_CARD_LIMITS = {
   qnb: { issuer: 'QNB', limit: 282_000 },
   akbank: { issuer: 'Akbank', limit: 31_700 }
@@ -48,6 +65,21 @@ const generateId = (): string => {
 
   return `row-${Math.random().toString(36).slice(2, 9)}`;
 };
+
+const createEntry = (overrides?: Partial<Entry>): Entry => ({
+  id: generateId(),
+  name: '',
+  amount: '',
+  type: 'Nakit',
+  unit: 'TL',
+  ...overrides
+});
+
+const createPlanningExpense = (): FixedExpense => ({
+  id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `fx-${Math.random().toString(36).slice(2, 9)}`,
+  category: '',
+  amount: ''
+});
 
 export const parseAmount = (value: string): number => {
   if (!value) {
@@ -90,15 +122,6 @@ export const getCreditCardMeta = (name: string, availableAmountTl: number): Cred
 
   return null;
 };
-
-const createEntry = (overrides?: Partial<Entry>): Entry => ({
-  id: generateId(),
-  name: '',
-  amount: '',
-  type: 'Nakit',
-  unit: 'TL',
-  ...overrides
-});
 
 interface FinanceState {
   entries: Entry[];
@@ -180,7 +203,106 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
         netWorth: assets - debt
       }
     });
+
+    triggerPlanningRecalculate();
   }
 }));
 
+const emptyMetrics: PlanningMetrics = {
+  goalValue: 0,
+  incomeValue: 0,
+  fixedTotal: 0,
+  savingsQuarter: 0,
+  flexibleSpending: 0,
+  weeklyLimit: 0,
+  remainingGoal: 0,
+  progressToGoal: 0
+};
+
+interface PlanningState {
+  goal: string;
+  monthlyIncome: string;
+  expenses: FixedExpense[];
+  metrics: PlanningMetrics;
+  setGoal: (value: string) => void;
+  setMonthlyIncome: (value: string) => void;
+  addExpense: () => void;
+  updateExpense: (id: string, key: keyof Omit<FixedExpense, 'id'>, value: string) => void;
+  removeExpense: (id: string) => void;
+  recalculate: () => void;
+}
+
+export const usePlanningStore = create<PlanningState>((set, get) => ({
+  goal: '',
+  monthlyIncome: '',
+  expenses: [createPlanningExpense()],
+  metrics: emptyMetrics,
+  setGoal: (value) => {
+    set({ goal: value });
+    get().recalculate();
+  },
+  setMonthlyIncome: (value) => {
+    set({ monthlyIncome: value });
+    get().recalculate();
+  },
+  addExpense: () => {
+    set((state) => ({ expenses: [...state.expenses, createPlanningExpense()] }));
+    get().recalculate();
+  },
+  updateExpense: (id, key, value) => {
+    set((state) => ({
+      expenses: state.expenses.map((expense) => (expense.id === id ? { ...expense, [key]: value } : expense))
+    }));
+    get().recalculate();
+  },
+  removeExpense: (id) => {
+    set((state) => {
+      if (state.expenses.length === 1) {
+        return state;
+      }
+
+      return {
+        expenses: state.expenses.filter((expense) => expense.id !== id)
+      };
+    });
+    get().recalculate();
+  },
+  recalculate: () => {
+    const { goal, monthlyIncome, expenses } = get();
+    const goalValue = parseAmount(goal);
+    const incomeValue = parseAmount(monthlyIncome);
+    const fixedTotal = expenses.reduce((sum, expense) => sum + parseAmount(expense.amount), 0);
+    const savingsQuarter = goalValue / 4;
+    const flexibleSpending = incomeValue - fixedTotal - savingsQuarter;
+    const weeklyLimit = flexibleSpending / 4;
+    const netWorth = useFinanceStore.getState().totals.netWorth;
+    const remainingGoal = goalValue - netWorth;
+    const progressRaw = goalValue > 0 ? netWorth / goalValue : 0;
+    const progressToGoal = Number.isFinite(progressRaw) ? Math.min(Math.max(progressRaw, 0), 1) : 0;
+
+    set({
+      metrics: {
+        goalValue,
+        incomeValue,
+        fixedTotal,
+        savingsQuarter,
+        flexibleSpending,
+        weeklyLimit,
+        remainingGoal,
+        progressToGoal
+      }
+    });
+  }
+}));
+
+function triggerPlanningRecalculate() {
+  try {
+    const recalculate = usePlanningStore.getState().recalculate;
+    recalculate();
+  } catch (error) {
+    // Planning store might not be initialised yet; ignore.
+  }
+}
+
 useFinanceStore.getState().autoCalculateTotals();
+usePlanningStore.getState().recalculate();

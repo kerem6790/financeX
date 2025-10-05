@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import Dashboard from './Dashboard';
 import InputPanel from './InputPanel';
 import Planning from './Planning';
 import './App.css';
@@ -56,7 +57,8 @@ function App() {
   const subtitle = activeContent.subtitle ?? 'finance yönetimi masaüstü deneyimi';
   const isInputs = activeContent.key === 'inputs';
   const isPlanning = activeContent.key === 'planning';
-  const bodyClassName = isInputs || isPlanning ? 'workspace__body workspace__body--inputs' : 'workspace__body';
+  const isDashboard = activeContent.key === 'dashboard';
+  const bodyClassName = isInputs || isPlanning || isDashboard ? 'workspace__body workspace__body--inputs' : 'workspace__body';
 
   return (
     <div className="app-shell">
@@ -89,6 +91,8 @@ function App() {
             <InputPanel />
           ) : isPlanning ? (
             <Planning />
+          ) : isDashboard ? (
+            <Dashboard />
           ) : (
             <div className="placeholder">
               <p>{activeContent.placeholder}</p>
