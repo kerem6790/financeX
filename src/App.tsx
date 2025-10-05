@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import InputPanel from './InputPanel';
+import Planning from './Planning';
 import './App.css';
 
 type TabKey = 'inputs' | 'dashboard' | 'expenses' | 'planning' | 'extra-income';
@@ -54,7 +55,8 @@ function App() {
   const activeContent = useMemo(() => tabs.find((tab) => tab.key === activeTab) ?? tabs[0], [activeTab]);
   const subtitle = activeContent.subtitle ?? 'finance yönetimi masaüstü deneyimi';
   const isInputs = activeContent.key === 'inputs';
-  const bodyClassName = isInputs ? 'workspace__body workspace__body--inputs' : 'workspace__body';
+  const isPlanning = activeContent.key === 'planning';
+  const bodyClassName = isInputs || isPlanning ? 'workspace__body workspace__body--inputs' : 'workspace__body';
 
   return (
     <div className="app-shell">
@@ -85,6 +87,8 @@ function App() {
         <section className={bodyClassName}>
           {isInputs ? (
             <InputPanel />
+          ) : isPlanning ? (
+            <Planning />
           ) : (
             <div className="placeholder">
               <p>{activeContent.placeholder}</p>
