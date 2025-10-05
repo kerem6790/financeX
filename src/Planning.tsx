@@ -137,15 +137,17 @@ const Planning = () => {
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between text-sm font-medium text-slate-600">
               <span>Haftalık harcama limiti</span>
-              <span>0.0%</span>
+              <span>{(metrics.weeklyProgress * 100).toFixed(1)}%</span>
             </div>
             <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-amber-200 to-amber-500 transition-all duration-500"
-                style={{ width: '0%' }}
+                style={{ width: `${metrics.weeklyProgress * 100}%` }}
               />
             </div>
-            <span className="text-xs text-slate-400">Haftalık harcama takibi yakında entegre edilecek.</span>
+            <span className="text-xs text-slate-400">
+              Haftalık harcama: {formatCurrency(metrics.weeklySpend)} / {formatCurrency(metrics.weeklyLimit)}
+            </span>
           </div>
         </div>
       </div>

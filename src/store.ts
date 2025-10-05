@@ -6,6 +6,9 @@ export type RowType = (typeof ROW_TYPE_OPTIONS)[number];
 export const UNIT_OPTIONS = ['TL', 'USD'] as const;
 export type Unit = (typeof UNIT_OPTIONS)[number];
 
+export const EXPENSE_CATEGORIES = ['Barınma', 'Ulaşım', 'Yeme-İçme', 'Eğlence', 'Sağlık', 'Fatura', 'Diğer'] as const;
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+
 export interface Entry {
   id: string;
   name: string;
@@ -41,6 +44,8 @@ export interface PlanningMetrics {
   weeklyLimit: number;
   remainingGoal: number;
   progressToGoal: number;
+  weeklySpend: number;
+  weeklyProgress: number;
 }
 
 const CREDIT_CARD_LIMITS = {
@@ -74,6 +79,51 @@ const createEntry = (overrides?: Partial<Entry>): Entry => ({
   unit: 'TL',
   ...overrides
 });
+
+export interface SpendingEntry {
+  id: string;
+  category: ExpenseCategory;
+  description: string;
+  amount: string;
+  date: string;
+  createdAt: number;
+}
+
+const createSpendingEntry = (payload: Omit<SpendingEntry, 'id' | 'createdAt'>): SpendingEntry => ({
+  id: generateId(),
+  createdAt: Date.now(),
+  ...payload
+});
+
+const ensureIsoDate = (value: string): string => {
+  if (!value) {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  return parsed.toISOString().slice(0, 10);
+};
+
+const isWithinLastSevenDays = (value: string): boolean => {
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return false;
+  }
+
+  const now = new Date();
+  const diffMs = now.getTime() - parsed.getTime();
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+  return diffMs >= 0 && diffMs < sevenDaysMs;
+};
+
+const calculateWeeklySpend = (entries: SpendingEntry[]): number =>
+  entries.reduce((sum, entry) => sum + (isWithinLastSevenDays(entry.date) ? parseAmount(entry.amount) : 0), 0);
 
 const createPlanningExpense = (): FixedExpense => ({
   id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `fx-${Math.random().toString(36).slice(2, 9)}`,
@@ -208,6 +258,34 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   }
 }));
 
+interface ExpenseState {
+  entries: SpendingEntry[];
+  addExpense: (payload: Omit<SpendingEntry, 'id' | 'createdAt'>) => void;
+  removeExpense: (id: string) => void;
+}
+
+export const useExpenseStore = create<ExpenseState>((set, get) => ({
+  entries: [],
+  addExpense: (payload) => {
+    const entry = createSpendingEntry({
+      ...payload,
+      date: ensureIsoDate(payload.date)
+    });
+
+    set((state) => ({
+      entries: [entry, ...state.entries].sort((a, b) =>
+        a.date === b.date ? b.createdAt - a.createdAt : b.date.localeCompare(a.date)
+      )
+    }));
+
+    triggerPlanningRecalculate();
+  },
+  removeExpense: (id) => {
+    set((state) => ({ entries: state.entries.filter((entry) => entry.id !== id) }));
+    triggerPlanningRecalculate();
+  }
+}));
+
 const emptyMetrics: PlanningMetrics = {
   goalValue: 0,
   incomeValue: 0,
@@ -216,7 +294,9 @@ const emptyMetrics: PlanningMetrics = {
   flexibleSpending: 0,
   weeklyLimit: 0,
   remainingGoal: 0,
-  progressToGoal: 0
+  progressToGoal: 0,
+  weeklySpend: 0,
+  weeklyProgress: 0
 };
 
 interface PlanningState {
@@ -279,6 +359,11 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
     const remainingGoal = goalValue - netWorth;
     const progressRaw = goalValue > 0 ? netWorth / goalValue : 0;
     const progressToGoal = Number.isFinite(progressRaw) ? Math.min(Math.max(progressRaw, 0), 1) : 0;
+    const weeklySpend = calculateWeeklySpend(useExpenseStore.getState().entries);
+    const weeklyProgressRaw = weeklyLimit > 0 ? weeklySpend / weeklyLimit : 0;
+    const weeklyProgress = Number.isFinite(weeklyProgressRaw)
+      ? Math.min(Math.max(weeklyProgressRaw, 0), 1)
+      : 0;
 
     set({
       metrics: {
@@ -289,7 +374,9 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
         flexibleSpending,
         weeklyLimit,
         remainingGoal,
-        progressToGoal
+        progressToGoal,
+        weeklySpend,
+        weeklyProgress
       }
     });
   }
