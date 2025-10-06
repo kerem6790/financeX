@@ -1,11 +1,17 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
 import {
   buildNetWorthTrend,
   buildSuggestion,
   formatCurrencyLabel
 } from './analytics';
-import { formatCurrency, useExpenseStore, useFinanceStore, usePlanningStore } from './store';
+import {
+  formatCurrency,
+  useExpenseStore,
+  useFinanceStore,
+  usePlanningStore,
+  type NetWorthSnapshot
+} from './store';
 
 const snapshotDateFormatter = new Intl.DateTimeFormat('tr-TR', {
   month: 'short',
@@ -19,9 +25,12 @@ const Dashboard = () => {
   const snapshots = useFinanceStore((state) => state.snapshots);
   const captureSnapshot = useFinanceStore((state) => state.captureSnapshot);
   const removeSnapshot = useFinanceStore((state) => state.removeSnapshot);
+  const restoreSnapshot = useFinanceStore((state) => state.restoreSnapshot);
   const planningMetrics = usePlanningStore((state) => state.metrics);
   const currentGoal = usePlanningStore((state) => state.goal);
   const expenses = useExpenseStore((state) => state.entries);
+
+  const [undoSnapshot, setUndoSnapshot] = useState<NetWorthSnapshot | null>(null);
 
   const netWorthTrend = useMemo(
     () => buildNetWorthTrend(snapshots, totals.netWorth),
@@ -47,6 +56,37 @@ const Dashboard = () => {
     [snapshots]
   );
 
+  useEffect(() => {
+    if (!undoSnapshot) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setUndoSnapshot(null);
+    }, 5000);
+
+    return () => window.clearTimeout(timeout);
+  }, [undoSnapshot]);
+
+  const handleRemoveSnapshot = (id: string) => {
+    const snapshot = snapshots.find((item) => item.id === id);
+    if (!snapshot) {
+      return;
+    }
+
+    removeSnapshot(id);
+    setUndoSnapshot(snapshot);
+  };
+
+  const handleUndoRemove = () => {
+    if (!undoSnapshot) {
+      return;
+    }
+
+    restoreSnapshot(undoSnapshot);
+    setUndoSnapshot(null);
+  };
+
   const suggestion = useMemo(() => buildSuggestion(expenses), [expenses]);
 
   const progress = Number.isFinite(planningMetrics.progressToGoal)
@@ -57,31 +97,32 @@ const Dashboard = () => {
   const deltaLabel = `${deltaDirection(chartDelta)} ${formatCurrency(Math.abs(chartDelta))}`;
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-12">
-      <div className="rounded-[28px] bg-white p-8 shadow-fx-card">
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Net Worth</span>
-            <span className="text-4xl font-semibold text-slate-900">{formatCurrency(totals.netWorth)}</span>
-          </div>
-          <div className={`rounded-full px-4 py-1 text-sm font-semibold ${chartDelta >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>
-            {deltaLabel}
+    <>
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-12">
+        <div className="rounded-[28px] bg-white p-8 shadow-fx-card">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Net Worth</span>
+              <span className="text-4xl font-semibold text-slate-900">{formatCurrency(totals.netWorth)}</span>
+            </div>
+            <div className={`rounded-full px-4 py-1 text-sm font-semibold ${chartDelta >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>
+              {deltaLabel}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
-          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Toplam Varlık</span>
-          <p className="mt-3 text-2xl font-semibold text-slate-900">{formatCurrency(totals.assets)}</p>
-          <p className="mt-2 text-sm text-slate-500">Likid ve yatırımların toplamı.</p>
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Toplam Varlık</span>
+            <p className="mt-3 text-2xl font-semibold text-slate-900">{formatCurrency(totals.assets)}</p>
+            <p className="mt-2 text-sm text-slate-500">Likid ve yatırımların toplamı.</p>
+          </div>
+          <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Toplam Borç</span>
+            <p className="mt-3 text-2xl font-semibold text-slate-900">{formatCurrency(totals.debt)}</p>
+            <p className="mt-2 text-sm text-slate-500">Kredi kartı ve diğer borçlar.</p>
+          </div>
         </div>
-        <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
-          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Toplam Borç</span>
-          <p className="mt-3 text-2xl font-semibold text-slate-900">{formatCurrency(totals.debt)}</p>
-          <p className="mt-2 text-sm text-slate-500">Kredi kartı ve diğer borçlar.</p>
-        </div>
-      </div>
 
       <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
         <div className="overflow-hidden rounded-[28px] bg-white p-8 shadow-fx-card">
@@ -167,7 +208,7 @@ const Dashboard = () => {
                     </div>
                     <button
                       type="button"
-                      onClick={() => removeSnapshot(snapshot.id)}
+                      onClick={() => handleRemoveSnapshot(snapshot.id)}
                       className="rounded-full border border-rose-200/70 px-3 py-1 text-xs font-semibold text-rose-500 transition hover:border-rose-400 hover:text-rose-600"
                     >
                       Sil
@@ -229,6 +270,21 @@ const Dashboard = () => {
         </div>
       </div>
     </div>
+      {undoSnapshot ? (
+        <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-4 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm text-slate-600 shadow-xl">
+          <span>
+            Son kaydı sildin. <span className="font-semibold text-slate-800">{formatCurrency(undoSnapshot.value)}</span> geri alınsın mı?
+          </span>
+          <button
+            type="button"
+            onClick={handleUndoRemove}
+            className="rounded-full border border-fx-accent px-3 py-1 text-xs font-semibold text-fx-accent transition hover:bg-fx-accent hover:text-white"
+          >
+            Geri Al
+          </button>
+        </div>
+      ) : null}
+    </>
   );
 };
 

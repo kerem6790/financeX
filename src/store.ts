@@ -304,6 +304,7 @@ interface FinanceState {
   captureSnapshot: () => void;
   setSnapshots: (snapshots: Partial<NetWorthSnapshot>[]) => void;
   removeSnapshot: (id: string) => void;
+  restoreSnapshot: (snapshot: NetWorthSnapshot) => void;
 }
 
 export const useFinanceStore = create<FinanceState>((set, get) => ({
@@ -397,6 +398,14 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   },
   removeSnapshot: (id) => {
     set((state) => ({ snapshots: state.snapshots.filter((snapshot) => snapshot.id !== id) }));
+  },
+  restoreSnapshot: (snapshot) => {
+    const restored = normaliseSnapshot(snapshot);
+    set((state) => ({
+      snapshots: [...state.snapshots.filter((item) => item.id !== restored.id), restored].sort((a, b) =>
+        a.capturedAt.localeCompare(b.capturedAt)
+      )
+    }));
   }
 }));
 

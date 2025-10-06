@@ -308,7 +308,10 @@ const Planning = () => {
             <div className="mt-4 h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
-                  data={planProjection.map((point) => ({ label: point.label, value: Number(point.baseline.toFixed(2)) }))}
+                  data={planProjection.map((point) => {
+                    const rawValue = metrics.planFeasible ? point.baseline : Math.max(point.baseline, 0);
+                    return { label: point.label, value: Number(rawValue.toFixed(2)) };
+                  })}
                   margin={{ top: 10, right: 24, left: 0, bottom: 0 }}
                 >
                   <defs>
