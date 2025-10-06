@@ -6,7 +6,8 @@ import {
   useExpenseStore,
   useFinanceStore,
   usePlanningStore,
-  useExtraIncomeStore
+  useExtraIncomeStore,
+  useProjectionStore
 } from './store';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_IPC__' in window;
@@ -48,6 +49,7 @@ const setupSubscriptions = () => {
   usePlanningStore.subscribe(() => scheduleSave());
   useExpenseStore.subscribe(() => scheduleSave());
   useExtraIncomeStore.subscribe(() => scheduleSave());
+  useProjectionStore.subscribe(() => scheduleSave());
 };
 
 export const initPersistence = async () => {

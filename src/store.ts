@@ -493,11 +493,57 @@ export interface PersistedExtraIncomeState {
   entries: ExtraIncomeEntry[];
 }
 
+export interface ProjectionEntry {
+  id: string;
+  source: string;
+  amount: string;
+  expectedDate: string;
+  probability: number;
+  note?: string;
+  createdAt: number;
+}
+
+const normaliseProjectionEntry = (entry: Partial<ProjectionEntry>): ProjectionEntry => ({
+  id: entry.id ?? generateId(),
+  source: entry.source ?? '',
+  amount: entry.amount ?? '',
+  expectedDate: ensureIsoDate(entry.expectedDate ?? ''),
+  probability: Math.min(Math.max(entry.probability ?? 50, 0), 100),
+  note: entry.note ?? '',
+  createdAt: entry.createdAt ?? Date.now()
+});
+
+interface ProjectionState {
+  entries: ProjectionEntry[];
+  addProjection: (payload: Omit<ProjectionEntry, 'id' | 'createdAt'>) => void;
+  removeProjection: (id: string) => void;
+  setEntries: (entries: Partial<ProjectionEntry>[]) => void;
+}
+
+export const useProjectionStore = create<ProjectionState>((set) => ({
+  entries: [],
+  addProjection: (payload) => {
+    const entry = normaliseProjectionEntry(payload);
+    set((state) => ({
+      entries: [entry, ...state.entries].sort((a, b) => a.expectedDate.localeCompare(b.expectedDate))
+    }));
+  },
+  removeProjection: (id) => {
+    set((state) => ({ entries: state.entries.filter((entry) => entry.id !== id) }));
+  },
+  setEntries: (entries) => {
+    set({
+      entries: entries.map(normaliseProjectionEntry).sort((a, b) => a.expectedDate.localeCompare(b.expectedDate))
+    });
+  }
+}));
+
 export interface PersistedState {
   finance: PersistedFinanceState;
   planning: PersistedPlanningState;
   expenses: PersistedExpenseState;
   extraIncome: PersistedExtraIncomeState;
+  projections: { entries: ProjectionEntry[] };
 }
 
 export const getPersistedState = (): PersistedState => ({
@@ -515,6 +561,9 @@ export const getPersistedState = (): PersistedState => ({
   },
   extraIncome: {
     entries: useExtraIncomeStore.getState().entries
+  },
+  projections: {
+    entries: useProjectionStore.getState().entries
   }
 });
 
@@ -547,6 +596,11 @@ export const hydrateFromPersistedState = (persisted: Partial<PersistedState>) =>
   const extraIncome = persisted.extraIncome;
   if (extraIncome) {
     useExtraIncomeStore.getState().setEntries(extraIncome.entries ?? []);
+  }
+
+  const projections = persisted.projections;
+  if (projections) {
+    useProjectionStore.getState().setEntries(projections.entries ?? []);
   }
 
   useFinanceStore.getState().autoCalculateTotals();

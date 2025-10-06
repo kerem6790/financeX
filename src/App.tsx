@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import Dashboard from './Dashboard';
+import EkGelir from './EkGelir';
 import Expenses from './Expenses';
 import InputPanel from './InputPanel';
 import Planning from './Planning';
@@ -13,6 +14,7 @@ interface TabConfig {
   heading: string;
   subtitle?: string;
   placeholder?: string;
+  render?: () => JSX.Element;
 }
 
 const tabs: TabConfig[] = [
@@ -47,8 +49,8 @@ const tabs: TabConfig[] = [
     key: 'extra-income',
     label: 'Ek Gelir',
     heading: 'Ek Gelir',
-    subtitle: 'Hedeflenen ve gerçekleşen ek gelirler yakında.',
-    placeholder: 'Ek Gelir – Çok yakında.'
+    subtitle: 'Teorik gelir projeksiyonlarını inceleyin.',
+    render: () => <EkGelir />
   }
 ];
 
@@ -60,7 +62,8 @@ function App() {
   const isPlanning = activeContent.key === 'planning';
   const isDashboard = activeContent.key === 'dashboard';
   const isExpenses = activeContent.key === 'expenses';
-  const bodyClassName = isInputs || isPlanning || isDashboard || isExpenses
+  const isExtraIncome = activeContent.key === 'extra-income';
+  const bodyClassName = isInputs || isPlanning || isDashboard || isExpenses || isExtraIncome
     ? 'workspace__body workspace__body--inputs'
     : 'workspace__body';
 
@@ -100,10 +103,14 @@ function App() {
           ) : isExpenses ? (
             <Expenses />
           ) : (
-            <div className="placeholder">
-              <p>{activeContent.placeholder}</p>
-              <p>Bu alan yakında ilgili sekmenin içerikleriyle güncellenecek.</p>
-            </div>
+            activeContent.render ? (
+              activeContent.render()
+            ) : (
+              <div className="placeholder">
+                <p>{activeContent.placeholder}</p>
+                <p>Bu alan yakında ilgili sekmenin içerikleriyle güncellenecek.</p>
+              </div>
+            )
           )}
         </section>
       </main>
