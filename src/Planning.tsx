@@ -52,6 +52,13 @@ const Planning = () => {
     [netWorth, metrics.monthlySavingTarget]
   );
 
+  const hasShortfall = !metrics.planFeasible;
+  const shortfallPercent = (metrics.shortfallRatio * 100).toFixed(1);
+  const flexibleAmountClass =
+    metrics.flexibleSpending < 0 ? 'text-2xl font-semibold text-rose-600 md:text-3xl' : 'text-3xl font-semibold text-slate-900';
+  const weeklyLimitClass =
+    metrics.weeklyLimit <= 0 ? 'text-2xl font-semibold text-rose-600 md:text-3xl' : 'text-3xl font-semibold text-slate-900';
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-12">
       <div className="rounded-[28px] bg-white p-8 shadow-fx-card transition-shadow duration-300 hover:shadow-xl">
@@ -145,6 +152,19 @@ const Planning = () => {
             </div>
           </div>
 
+          {hasShortfall ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50/80 p-5 text-sm text-rose-700">
+              <p className="text-base font-semibold text-rose-600">Plan çok agresif görünüyor</p>
+              <p className="mt-2">
+                Seçtiğin süre ayda <span className="font-semibold">{formatCurrency(metrics.monthlySavingTarget)}</span> birikim gerektiriyor.
+                Bu tutar, gelirinden {formatCurrency(metrics.monthlyShortfall)} fazla (%{shortfallPercent}).
+              </p>
+              <p className="mt-2 text-xs">
+                Süreyi uzatarak veya hedef tutarı düşürerek planı daha gerçekçi hale getirebilirsin. Aksi halde haftalık limit negatif kalır.
+              </p>
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div>
@@ -207,13 +227,13 @@ const Planning = () => {
 
         <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
           <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Esnek Harcama Limiti</h4>
-          <p className="mt-3 text-3xl font-semibold text-slate-900">{formatCurrency(metrics.flexibleSpending)}</p>
+          <p className={`mt-3 ${flexibleAmountClass}`}>{formatCurrency(metrics.flexibleSpending)}</p>
           <p className="mt-2 text-sm text-slate-500">Gelir – Sabit Giderler – Aylık tasarruf hedefi.</p>
         </div>
 
         <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
           <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Haftalık Limit</h4>
-          <p className="mt-3 text-3xl font-semibold text-slate-900">{formatCurrency(metrics.weeklyLimit)}</p>
+          <p className={`mt-3 ${weeklyLimitClass}`}>{formatCurrency(metrics.weeklyLimit)}</p>
           <p className="mt-2 text-sm text-slate-500">Esnek harcama limitini haftalara böldüğümüzde kalan miktar.</p>
         </div>
 

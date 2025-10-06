@@ -7,15 +7,25 @@ import {
 } from './analytics';
 import { formatCurrency, useExpenseStore, useFinanceStore, usePlanningStore } from './store';
 
+const snapshotDateFormatter = new Intl.DateTimeFormat('tr-TR', {
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit'
+});
+
 const Dashboard = () => {
   const totals = useFinanceStore((state) => state.totals);
+  const snapshots = useFinanceStore((state) => state.snapshots);
+  const captureSnapshot = useFinanceStore((state) => state.captureSnapshot);
+  const removeSnapshot = useFinanceStore((state) => state.removeSnapshot);
   const planningMetrics = usePlanningStore((state) => state.metrics);
   const currentGoal = usePlanningStore((state) => state.goal);
   const expenses = useExpenseStore((state) => state.entries);
 
   const netWorthTrend = useMemo(
-    () => buildNetWorthTrend(totals.netWorth, planningMetrics.weeklyLimit, planningMetrics.weeklySpend),
-    [planningMetrics.weeklyLimit, planningMetrics.weeklySpend, totals.netWorth]
+    () => buildNetWorthTrend(snapshots, totals.netWorth),
+    [snapshots, totals.netWorth]
   );
 
   const chartDelta = useMemo(() => {
@@ -26,6 +36,16 @@ const Dashboard = () => {
     const previous = netWorthTrend[netWorthTrend.length - 2]?.value ?? latest;
     return latest - previous;
   }, [netWorthTrend]);
+
+  const hasSnapshots = snapshots.length > 0;
+  const recentSnapshots = useMemo(
+    () =>
+      snapshots
+        .slice()
+        .sort((a, b) => b.capturedAt.localeCompare(a.capturedAt))
+        .slice(0, 5),
+    [snapshots]
+  );
 
   const suggestion = useMemo(() => buildSuggestion(expenses), [expenses]);
 
@@ -68,7 +88,9 @@ const Dashboard = () => {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-slate-800">Net Değer Değişimi (₺)</h3>
-              <p className="text-sm text-slate-500">Haftalık bazda net değer hareketiniz.</p>
+              <p className="text-sm text-slate-500">
+                Anlık net değerinizi kaydetmek için aşağıdaki SS butonunu kullanın.
+              </p>
             </div>
           </div>
           <div className="mt-8 h-64 w-full">
@@ -76,6 +98,7 @@ const Dashboard = () => {
               <LineChart
                 data={netWorthTrend.map((point) => ({
                   label: point.label,
+                  timestamp: point.date.getTime(),
                   netWorth: Number(point.value.toFixed(2))
                 }))}
                 margin={{ top: 10, right: 30, left: 10, bottom: 0 }}
@@ -110,6 +133,50 @@ const Dashboard = () => {
               </LineChart>
             </ResponsiveContainer>
           </div>
+          <div className="mt-6 flex items-center justify-between">
+            {!hasSnapshots ? (
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+                Henüz kayıt yok. SS ile ilk net değerini kaydet.
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={captureSnapshot}
+              className="rounded-full border border-slate-200 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 transition hover:bg-slate-100 hover:text-slate-800 active:scale-[0.97]"
+              aria-label="Şu anki net değeri kaydet"
+            >
+              SS
+            </button>
+          </div>
+          {hasSnapshots ? (
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Kaydedilmiş Net Worth SS'leri
+                </span>
+                <span className="text-xs text-slate-400">Son {recentSnapshots.length} kayıt</span>
+              </div>
+              <ul className="mt-3 divide-y divide-slate-200 text-sm text-slate-600">
+                {recentSnapshots.map((snapshot) => (
+                  <li key={snapshot.id} className="flex items-center justify-between py-2">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-700">{formatCurrency(snapshot.value)}</span>
+                      <span className="text-xs text-slate-400">
+                        {snapshotDateFormatter.format(new Date(snapshot.capturedAt))}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeSnapshot(snapshot.id)}
+                      className="rounded-full border border-rose-200/70 px-3 py-1 text-xs font-semibold text-rose-500 transition hover:border-rose-400 hover:text-rose-600"
+                    >
+                      Sil
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-6">

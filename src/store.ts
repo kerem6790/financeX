@@ -54,6 +54,9 @@ export interface PlanningMetrics {
   weeklyProgress: number;
   planDurationMonths: number;
   plannedCompletionDate: string | null;
+  monthlyShortfall: number;
+  shortfallRatio: number;
+  planFeasible: boolean;
 }
 
 const CREDIT_CARD_LIMITS = {
@@ -300,6 +303,7 @@ interface FinanceState {
   autoCalculateTotals: () => void;
   captureSnapshot: () => void;
   setSnapshots: (snapshots: Partial<NetWorthSnapshot>[]) => void;
+  removeSnapshot: (id: string) => void;
 }
 
 export const useFinanceStore = create<FinanceState>((set, get) => ({
@@ -390,6 +394,9 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     set({
       snapshots: snapshots.map(normaliseSnapshot).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
     });
+  },
+  removeSnapshot: (id) => {
+    set((state) => ({ snapshots: state.snapshots.filter((snapshot) => snapshot.id !== id) }));
   }
 }));
 
@@ -442,7 +449,10 @@ const emptyMetrics: PlanningMetrics = {
   weeklySpend: 0,
   weeklyProgress: 0,
   planDurationMonths: 0,
-  plannedCompletionDate: null
+  plannedCompletionDate: null,
+  monthlyShortfall: 0,
+  shortfallRatio: 0,
+  planFeasible: true
 };
 
 interface PlanningState {
@@ -523,7 +533,9 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
     const planDurationMonths = planMeta.months;
     const monthlySavingTarget = planDurationMonths > 0 ? goalValue / planDurationMonths : goalValue;
     const flexibleSpending = incomeValue - fixedTotal - monthlySavingTarget;
-    const weeklyLimit = flexibleSpending / AVERAGE_WEEKS_PER_MONTH;
+    const monthlyShortfall = flexibleSpending < 0 ? Math.abs(flexibleSpending) : 0;
+    const effectiveFlexible = Math.max(flexibleSpending, 0);
+    const weeklyLimit = effectiveFlexible / AVERAGE_WEEKS_PER_MONTH;
     const netWorth = useFinanceStore.getState().totals.netWorth;
     const remainingGoal = goalValue - netWorth;
     const progressRaw = goalValue > 0 ? netWorth / goalValue : 0;
@@ -547,7 +559,11 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
         weeklySpend,
         weeklyProgress,
         planDurationMonths,
-        plannedCompletionDate: planMeta.completionDateIso
+        plannedCompletionDate: planMeta.completionDateIso,
+        monthlyShortfall,
+        shortfallRatio:
+          incomeValue > 0 ? Math.min(monthlyShortfall / incomeValue, 1) : monthlyShortfall > 0 ? 1 : 0,
+        planFeasible: monthlyShortfall === 0
       }
     });
   }
