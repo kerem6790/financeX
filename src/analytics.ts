@@ -4,6 +4,7 @@ import {
   type NetWorthSnapshot,
   type SpendingEntry,
   type ExtraIncomeEntry,
+  type ProjectionEntry,
   EXPENSE_CATEGORIES,
   type ExpenseCategory
 } from './store';
@@ -17,6 +18,11 @@ const dateFormatter = new Intl.DateTimeFormat('tr-TR', {
 
 const monthFormatter = new Intl.DateTimeFormat('tr-TR', {
   month: 'long',
+  year: 'numeric'
+});
+
+const projectionFormatter = new Intl.DateTimeFormat('tr-TR', {
+  month: 'short',
   year: 'numeric'
 });
 
@@ -49,6 +55,107 @@ export const buildNetWorthTrend = (snapshots: NetWorthSnapshot[], fallbackNetWor
         date
       };
     });
+};
+
+export interface NetWorthProjectionPoint {
+  label: string;
+  date: Date;
+  baseline: number;
+  withExtra?: number;
+}
+
+const clampNumber = (value: number): number => (Number.isFinite(value) ? value : 0);
+
+export const buildPlanProjectionSeries = (
+  currentNetWorth: number,
+  monthlySavingTarget: number,
+  monthsAhead = 3
+): NetWorthProjectionPoint[] => {
+  const base = clampNumber(currentNetWorth);
+  const monthlyDelta = clampNumber(monthlySavingTarget);
+  const start = new Date();
+  const reference = new Date(start.getFullYear(), start.getMonth(), 1);
+
+  const points: NetWorthProjectionPoint[] = [];
+  let runningTotal = base;
+
+  for (let idx = 0; idx <= monthsAhead; idx += 1) {
+    if (idx > 0) {
+      runningTotal += monthlyDelta;
+    }
+
+    const date = new Date(reference);
+    date.setMonth(reference.getMonth() + idx);
+
+    points.push({
+      label: projectionFormatter.format(date),
+      date,
+      baseline: runningTotal
+    });
+  }
+
+  return points;
+};
+
+const normaliseProjectionAmount = (entry: ProjectionEntry, weighted: boolean): number => {
+  const amount = clampNumber(parseAmount(entry.amount));
+  if (amount <= 0) {
+    return 0;
+  }
+
+  if (!weighted) {
+    return amount;
+  }
+
+  const probability = Number.isFinite(entry.probability) ? entry.probability : 0;
+  return amount * Math.max(Math.min(probability, 100), 0) * 0.01;
+};
+
+export const buildPlanProjectionWithExtraIncome = (
+  currentNetWorth: number,
+  monthlySavingTarget: number,
+  projections: ProjectionEntry[],
+  monthsAhead = 3,
+  weighted = true
+): NetWorthProjectionPoint[] => {
+  const baseSeries = buildPlanProjectionSeries(currentNetWorth, monthlySavingTarget, monthsAhead);
+
+  if (!projections || projections.length === 0) {
+    return baseSeries.map((point) => ({ ...point, withExtra: point.baseline }));
+  }
+
+  const now = new Date();
+  const contributions: number[] = new Array(monthsAhead + 1).fill(0);
+
+  projections.forEach((entry) => {
+    const expected = entry.expectedDate ? new Date(entry.expectedDate) : null;
+    if (!expected || Number.isNaN(expected.getTime())) {
+      return;
+    }
+
+    const amount = normaliseProjectionAmount(entry, weighted);
+    if (amount <= 0) {
+      return;
+    }
+
+    const diffMonths = (expected.getFullYear() - now.getFullYear()) * 12 + (expected.getMonth() - now.getMonth());
+    if (diffMonths < 0) {
+      contributions[0] += amount;
+      return;
+    }
+
+    const index = Math.min(monthsAhead, diffMonths);
+    contributions[index] += amount;
+  });
+
+  let runningExtra = 0;
+  return baseSeries.map((point, index) => {
+    runningExtra += contributions[index] ?? 0;
+    return {
+      ...point,
+      withExtra: point.baseline + runningExtra
+    };
+  });
 };
 
 export interface MonthlySpendingInsight {

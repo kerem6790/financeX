@@ -1,7 +1,8 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { formatCurrency, useFinanceStore, useProjectionStore } from './store';
+import { Bar, BarChart, Cell, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { buildPlanProjectionWithExtraIncome } from './analytics';
+import { formatCurrency, useFinanceStore, usePlanningStore, useProjectionStore } from './store';
 
 const chartColors = ['#4ade80', '#38bdf8', '#a855f7', '#f97316', '#facc15', '#ec4899'];
 
@@ -15,6 +16,7 @@ const initialFormState = {
 
 const EkGelir = () => {
   const netWorth = useFinanceStore((state) => state.totals.netWorth);
+  const planningMetrics = usePlanningStore((state) => state.metrics);
   const projections = useProjectionStore((state) => state.entries);
   const addProjection = useProjectionStore((state) => state.addProjection);
   const removeProjection = useProjectionStore((state) => state.removeProjection);
@@ -51,6 +53,11 @@ const EkGelir = () => {
   }, [projections]);
 
   const scenarioNetWorth = netWorth + totals.total;
+
+  const projectionWithExtraIncome = useMemo(
+    () => buildPlanProjectionWithExtraIncome(netWorth, planningMetrics.monthlySavingTarget, projections, 3, true),
+    [netWorth, planningMetrics.monthlySavingTarget, projections]
+  );
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -261,6 +268,71 @@ const EkGelir = () => {
               <span>
                 Ağırlıklı Ortalama Gerçekleşme: <span className="font-semibold text-fx-neutral">{totals.weightedProbability.toFixed(1)}%</span>
               </span>
+            </div>
+
+            <div className="mt-10 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-5">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Plan + Ek Gelir Senaryosu
+                </span>
+                <p className="text-sm text-slate-500">
+                  Planlanan tasarruf temposu ile ek gelirler birlikte gerçekleşirse net değerin.
+                </p>
+              </div>
+              <div className="mt-4 h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={projectionWithExtraIncome.map((point) => ({
+                      label: point.label,
+                      baseline: Number(point.baseline.toFixed(2)),
+                      withExtra: Number((point.withExtra ?? point.baseline).toFixed(2))
+                    }))}
+                    margin={{ top: 10, right: 24, left: 0, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="baselineLine" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.9} />
+                        <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.2} />
+                      </linearGradient>
+                      <linearGradient id="withExtraLine" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#22c55e" stopOpacity={0.9} />
+                        <stop offset="100%" stopColor="#16a34a" stopOpacity={0.2} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 6" vertical={false} />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fill: '#64748b', fontSize: 12 }}
+                      tickFormatter={(value) => formatCurrency(value).replace('₺', '')}
+                    />
+                    <Tooltip
+                      formatter={(value: number, name: string) => [formatCurrency(value), name === 'withExtra' ? 'Ek gelirli senaryo' : 'Planlanan tempo']}
+                      labelStyle={{ fontWeight: 600 }}
+                      contentStyle={{ borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 18px 42px rgba(148,163,184,0.25)' }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="baseline"
+                      stroke="url(#baselineLine)"
+                      strokeWidth={3}
+                      dot={{ r: 3, fill: '#0f172a', strokeWidth: 0 }}
+                      activeDot={{ r: 6, stroke: '#0f172a', strokeWidth: 1, fill: '#38bdf8' }}
+                      name="Planlanan tempo"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="withExtra"
+                      stroke="url(#withExtraLine)"
+                      strokeWidth={3}
+                      dot={{ r: 3, fill: '#14532d', strokeWidth: 0 }}
+                      activeDot={{ r: 6, stroke: '#14532d', strokeWidth: 1, fill: '#22c55e' }}
+                      name="Ek gelirli senaryo"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 

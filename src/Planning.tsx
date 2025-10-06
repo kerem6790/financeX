@@ -1,5 +1,11 @@
 import { useMemo } from 'react';
-import { buildMotivationMessage, calculateEstimatedGoalDate, formatDate } from './analytics';
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
+import {
+  buildMotivationMessage,
+  buildPlanProjectionSeries,
+  calculateEstimatedGoalDate,
+  formatDate
+} from './analytics';
 import { formatCurrency, useFinanceStore, usePlanningStore } from './store';
 
 const Planning = () => {
@@ -40,6 +46,11 @@ const Planning = () => {
   }, [metrics.goalValue, metrics.weeklyLimit, metrics.weeklySpend, netWorth, plannedCompletionDate]);
 
   const motivationMessage = useMemo(() => buildMotivationMessage(metrics.progressToGoal), [metrics.progressToGoal]);
+
+  const planProjection = useMemo(
+    () => buildPlanProjectionSeries(netWorth, metrics.monthlySavingTarget, 3),
+    [netWorth, metrics.monthlySavingTarget]
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-12">
@@ -262,6 +273,53 @@ const Planning = () => {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5">
               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Motivasyon</span>
               <p className="mt-2 text-sm text-slate-700">{motivationMessage}</p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Planlanan Net Worth Trend'i
+                </span>
+                <p className="text-sm text-slate-500">Şu anki tempoda önümüzdeki 3 ay için beklenen hareket.</p>
+              </div>
+            </div>
+            <div className="mt-4 h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={planProjection.map((point) => ({ label: point.label, value: Number(point.baseline.toFixed(2)) }))}
+                  margin={{ top: 10, right: 24, left: 0, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="planProjection" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.9} />
+                      <stop offset="100%" stopColor="#2563eb" stopOpacity={0.2} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 6" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: '#64748b', fontSize: 12 }}
+                    tickFormatter={(value) => formatCurrency(value).replace('₺', '')}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => formatCurrency(value)}
+                    labelStyle={{ fontWeight: 600 }}
+                    contentStyle={{ borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 18px 42px rgba(148,163,184,0.25)' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="url(#planProjection)"
+                    strokeWidth={3}
+                    dot={{ r: 3, fill: '#0f172a', strokeWidth: 0 }}
+                    activeDot={{ r: 6, stroke: '#0f172a', strokeWidth: 1, fill: '#22d3ee' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           </div>
         </div>
