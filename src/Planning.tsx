@@ -10,14 +10,34 @@ const Planning = () => {
   const metrics = usePlanningStore((state) => state.metrics);
   const setGoal = usePlanningStore((state) => state.setGoal);
   const setMonthlyIncome = usePlanningStore((state) => state.setMonthlyIncome);
+  const targetMode = usePlanningStore((state) => state.targetMode);
+  const targetDurationMonths = usePlanningStore((state) => state.targetDurationMonths);
+  const targetDate = usePlanningStore((state) => state.targetDate);
+  const setTargetMode = usePlanningStore((state) => state.setTargetMode);
+  const setTargetDurationMonths = usePlanningStore((state) => state.setTargetDurationMonths);
+  const setTargetDate = usePlanningStore((state) => state.setTargetDate);
   const addExpense = usePlanningStore((state) => state.addExpense);
   const updateExpense = usePlanningStore((state) => state.updateExpense);
   const removeExpense = usePlanningStore((state) => state.removeExpense);
 
-  const estimatedDate = useMemo(
-    () => calculateEstimatedGoalDate(netWorth, metrics.goalValue, metrics.weeklyLimit, metrics.weeklySpend),
-    [metrics.goalValue, metrics.weeklyLimit, metrics.weeklySpend, netWorth]
-  );
+  const plannedCompletionDate = useMemo(() => {
+    if (!metrics.plannedCompletionDate) {
+      return null;
+    }
+    const parsed = new Date(metrics.plannedCompletionDate);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, [metrics.plannedCompletionDate]);
+
+  const estimatedDate = useMemo(() => {
+    const computed = calculateEstimatedGoalDate(
+      netWorth,
+      metrics.goalValue,
+      metrics.weeklyLimit,
+      metrics.weeklySpend
+    );
+
+    return computed ?? plannedCompletionDate;
+  }, [metrics.goalValue, metrics.weeklyLimit, metrics.weeklySpend, netWorth, plannedCompletionDate]);
 
   const motivationMessage = useMemo(() => buildMotivationMessage(metrics.progressToGoal), [metrics.progressToGoal]);
 
@@ -51,6 +71,67 @@ const Planning = () => {
                 onChange={(event) => setMonthlyIncome(event.target.value)}
               />
             </label>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Hedef Zamanı
+            </span>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <label className={`flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition ${targetMode === 'duration' ? 'border-fx-accent bg-white text-fx-accent' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
+                <input
+                  type="radio"
+                  checked={targetMode === 'duration'}
+                  onChange={() => setTargetMode('duration')}
+                  className="sr-only"
+                />
+                <span>Kaç Ayda?</span>
+              </label>
+              <label className={`flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] transition ${targetMode === 'date' ? 'border-fx-accent bg-white text-fx-accent' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
+                <input
+                  type="radio"
+                  checked={targetMode === 'date'}
+                  onChange={() => setTargetMode('date')}
+                  className="sr-only"
+                />
+                <span>Hangi Gün?</span>
+              </label>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2 md:items-end">
+              {targetMode === 'duration' ? (
+                <label className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-slate-600">Planlanan süre (ay)</span>
+                  <input
+                    type="number"
+                    min="0.5"
+                    step="0.5"
+                    inputMode="decimal"
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20"
+                    placeholder="örn. 4"
+                    value={targetDurationMonths}
+                    onChange={(event) => setTargetDurationMonths(event.target.value)}
+                  />
+                </label>
+              ) : (
+                <label className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-slate-600">Hedef tarih</span>
+                  <input
+                    type="date"
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20"
+                    value={targetDate}
+                    onChange={(event) => setTargetDate(event.target.value)}
+                  />
+                </label>
+              )}
+
+              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                <p className="font-semibold text-slate-800">Plan süresi</p>
+                <p>
+                  ≈ {metrics.planDurationMonths > 0 ? metrics.planDurationMonths.toFixed(1) : '0.0'} ay ({targetMode === 'date' ? 'tarih bazlı' : 'süre bazlı'})
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-col gap-4">
@@ -106,19 +187,23 @@ const Planning = () => {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
+          <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Aylık Tasarruf Hedefi</h4>
+          <p className="mt-3 text-3xl font-semibold text-slate-900">{formatCurrency(metrics.monthlySavingTarget)}</p>
+          <p className="mt-2 text-sm text-slate-500">Hedefe ulaşmak için ayda biriktirmen gereken tutar.</p>
+        </div>
+
         <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
           <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Esnek Harcama Limiti</h4>
           <p className="mt-3 text-3xl font-semibold text-slate-900">{formatCurrency(metrics.flexibleSpending)}</p>
-          <p className="mt-2 text-sm text-slate-500">
-            Gelir – Sabit Giderler – (Hedef Birikim / 4)
-          </p>
+          <p className="mt-2 text-sm text-slate-500">Gelir – Sabit Giderler – Aylık tasarruf hedefi.</p>
         </div>
 
         <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
           <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Haftalık Limit</h4>
           <p className="mt-3 text-3xl font-semibold text-slate-900">{formatCurrency(metrics.weeklyLimit)}</p>
-          <p className="mt-2 text-sm text-slate-500">Esnek harcama limitinin dörtte biri.</p>
+          <p className="mt-2 text-sm text-slate-500">Esnek harcama limitini haftalara böldüğümüzde kalan miktar.</p>
         </div>
 
         <div className="rounded-[28px] bg-white p-6 shadow-fx-card">
@@ -162,12 +247,14 @@ const Planning = () => {
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-5">
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Tahmini hedefe ulaşma tarihi
-              </span>
-              <p className="mt-2 text-sm font-semibold text-slate-800">{formatDate(estimatedDate)}</p>
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Planlanan Hedef Tarihi</span>
+              <p className="mt-2 text-sm font-semibold text-slate-800">{formatDate(plannedCompletionDate)}</p>
+              <div className="mt-3 rounded-lg bg-white/80 p-3 text-xs text-slate-500">
+                <span className="font-semibold text-slate-600">Tahmini gerçekleşme:</span>
+                <span className="ml-2 text-slate-700">{formatDate(estimatedDate)}</span>
+              </div>
               {estimatedDate === null && (
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-2 text-xs text-slate-500">
                   Haftalık tasarruf tutarınızı artırarak hedef tarihini netleştirebilirsiniz.
                 </p>
               )}

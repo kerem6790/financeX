@@ -17,6 +17,12 @@ export interface Entry {
   unit: Unit;
 }
 
+export interface NetWorthSnapshot {
+  id: string;
+  capturedAt: string;
+  value: number;
+}
+
 export interface Totals {
   debt: number;
   assets: number;
@@ -39,13 +45,15 @@ export interface PlanningMetrics {
   goalValue: number;
   incomeValue: number;
   fixedTotal: number;
-  savingsQuarter: number;
+  monthlySavingTarget: number;
   flexibleSpending: number;
   weeklyLimit: number;
   remainingGoal: number;
   progressToGoal: number;
   weeklySpend: number;
   weeklyProgress: number;
+  planDurationMonths: number;
+  plannedCompletionDate: string | null;
 }
 
 const CREDIT_CARD_LIMITS = {
@@ -178,6 +186,65 @@ const createPlanningExpense = (): FixedExpense => ({
   amount: ''
 });
 
+const normaliseSnapshot = (snapshot: Partial<NetWorthSnapshot>): NetWorthSnapshot => {
+  const parsedDate = snapshot.capturedAt ? new Date(snapshot.capturedAt) : new Date();
+  const capturedAt = Number.isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
+
+  const value = Number.isFinite(snapshot.value) ? Number(snapshot.value) : 0;
+
+  return {
+    id: snapshot.id ?? generateId(),
+    capturedAt,
+    value
+  };
+};
+
+const AVERAGE_WEEKS_PER_MONTH = 4.34524;
+
+const parsePositiveFloat = (value: string): number | null => {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.replace(/\s/g, '').replace(',', '.');
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+};
+
+const calculatePlanDurationMonths = (
+  mode: 'duration' | 'date',
+  durationValue: string,
+  targetDateValue: string
+): { months: number; completionDateIso: string | null } => {
+  const now = new Date();
+
+  if (mode === 'duration') {
+    const parsed = parsePositiveFloat(durationValue);
+    const months = parsed ?? 4;
+    const completion = new Date(now);
+    completion.setDate(completion.getDate() + Math.max(Math.round(months * 30.4375), 1));
+    return { months, completionDateIso: completion.toISOString() };
+  }
+
+  if (!targetDateValue) {
+    return { months: 4, completionDateIso: null };
+  }
+
+  const targetDate = new Date(targetDateValue);
+  if (Number.isNaN(targetDate.getTime())) {
+    return { months: 4, completionDateIso: null };
+  }
+
+  const diffMs = targetDate.getTime() - now.getTime();
+  const diffMonths = diffMs / (1000 * 60 * 60 * 24 * 30.4375);
+  const months = diffMonths > 0 ? diffMonths : 1;
+  return { months, completionDateIso: targetDate.toISOString() };
+};
+
 export const parseAmount = (value: string): number => {
   if (!value) {
     return 0;
@@ -224,12 +291,15 @@ interface FinanceState {
   entries: Entry[];
   totals: Totals;
   usdRate: string;
+  snapshots: NetWorthSnapshot[];
   updateEntry: <Key extends keyof Omit<Entry, 'id'>>(id: string, key: Key, value: Entry[Key]) => void;
-  addEntry: () => void;
+  addEntry: (overrides?: Partial<Entry>) => void;
   removeEntry: (id: string) => void;
   reorderEntries: (fromId: string, toId: string) => void;
   setUsdRate: (value: string) => void;
   autoCalculateTotals: () => void;
+  captureSnapshot: () => void;
+  setSnapshots: (snapshots: Partial<NetWorthSnapshot>[]) => void;
 }
 
 export const useFinanceStore = create<FinanceState>((set, get) => ({
@@ -239,14 +309,15 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   ],
   totals: { debt: 0, assets: 0, netWorth: 0 },
   usdRate: '',
+  snapshots: [],
   updateEntry: (id, key, value) => {
     set((state) => ({
       entries: state.entries.map((entry) => (entry.id === id ? { ...entry, [key]: value } : entry))
     }));
     get().autoCalculateTotals();
   },
-  addEntry: () => {
-    set((state) => ({ entries: [...state.entries, createEntry()] }));
+  addEntry: (overrides) => {
+    set((state) => ({ entries: [...state.entries, createEntry(overrides)] }));
     get().autoCalculateTotals();
   },
   removeEntry: (id) => {
@@ -302,6 +373,23 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     });
 
     triggerPlanningRecalculate();
+  },
+  captureSnapshot: () => {
+    const netWorth = get().totals.netWorth;
+    if (!Number.isFinite(netWorth)) {
+      return;
+    }
+
+    const snapshot = normaliseSnapshot({ value: Number(netWorth) });
+
+    set((state) => ({
+      snapshots: [...state.snapshots, snapshot].sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
+    }));
+  },
+  setSnapshots: (snapshots) => {
+    set({
+      snapshots: snapshots.map(normaliseSnapshot).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
+    });
   }
 }));
 
@@ -346,13 +434,15 @@ const emptyMetrics: PlanningMetrics = {
   goalValue: 0,
   incomeValue: 0,
   fixedTotal: 0,
-  savingsQuarter: 0,
+  monthlySavingTarget: 0,
   flexibleSpending: 0,
   weeklyLimit: 0,
   remainingGoal: 0,
   progressToGoal: 0,
   weeklySpend: 0,
-  weeklyProgress: 0
+  weeklyProgress: 0,
+  planDurationMonths: 0,
+  plannedCompletionDate: null
 };
 
 interface PlanningState {
@@ -360,8 +450,14 @@ interface PlanningState {
   monthlyIncome: string;
   expenses: FixedExpense[];
   metrics: PlanningMetrics;
+  targetMode: 'duration' | 'date';
+  targetDurationMonths: string;
+  targetDate: string;
   setGoal: (value: string) => void;
   setMonthlyIncome: (value: string) => void;
+  setTargetMode: (mode: 'duration' | 'date') => void;
+  setTargetDurationMonths: (value: string) => void;
+  setTargetDate: (value: string) => void;
   addExpense: () => void;
   updateExpense: (id: string, key: keyof Omit<FixedExpense, 'id'>, value: string) => void;
   removeExpense: (id: string) => void;
@@ -373,12 +469,27 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
   monthlyIncome: '',
   expenses: [createPlanningExpense()],
   metrics: emptyMetrics,
+  targetMode: 'duration',
+  targetDurationMonths: '4',
+  targetDate: '',
   setGoal: (value) => {
     set({ goal: value });
     get().recalculate();
   },
   setMonthlyIncome: (value) => {
     set({ monthlyIncome: value });
+    get().recalculate();
+  },
+  setTargetMode: (mode) => {
+    set({ targetMode: mode });
+    get().recalculate();
+  },
+  setTargetDurationMonths: (value) => {
+    set({ targetDurationMonths: value });
+    get().recalculate();
+  },
+  setTargetDate: (value) => {
+    set({ targetDate: value });
     get().recalculate();
   },
   addExpense: () => {
@@ -404,13 +515,15 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
     get().recalculate();
   },
   recalculate: () => {
-    const { goal, monthlyIncome, expenses } = get();
+    const { goal, monthlyIncome, expenses, targetMode, targetDurationMonths, targetDate } = get();
     const goalValue = parseAmount(goal);
     const incomeValue = parseAmount(monthlyIncome);
     const fixedTotal = expenses.reduce((sum, expense) => sum + parseAmount(expense.amount), 0);
-    const savingsQuarter = goalValue / 4;
-    const flexibleSpending = incomeValue - fixedTotal - savingsQuarter;
-    const weeklyLimit = flexibleSpending / 4;
+    const planMeta = calculatePlanDurationMonths(targetMode, targetDurationMonths, targetDate);
+    const planDurationMonths = planMeta.months;
+    const monthlySavingTarget = planDurationMonths > 0 ? goalValue / planDurationMonths : goalValue;
+    const flexibleSpending = incomeValue - fixedTotal - monthlySavingTarget;
+    const weeklyLimit = flexibleSpending / AVERAGE_WEEKS_PER_MONTH;
     const netWorth = useFinanceStore.getState().totals.netWorth;
     const remainingGoal = goalValue - netWorth;
     const progressRaw = goalValue > 0 ? netWorth / goalValue : 0;
@@ -426,13 +539,15 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
         goalValue,
         incomeValue,
         fixedTotal,
-        savingsQuarter,
+        monthlySavingTarget,
         flexibleSpending,
         weeklyLimit,
         remainingGoal,
         progressToGoal,
         weeklySpend,
-        weeklyProgress
+        weeklyProgress,
+        planDurationMonths,
+        plannedCompletionDate: planMeta.completionDateIso
       }
     });
   }
@@ -477,12 +592,16 @@ export const useExtraIncomeStore = create<ExtraIncomeState>((set) => ({
 export interface PersistedFinanceState {
   entries: Entry[];
   usdRate: string;
+  snapshots: NetWorthSnapshot[];
 }
 
 export interface PersistedPlanningState {
   goal: string;
   monthlyIncome: string;
   expenses: FixedExpense[];
+  targetMode: 'duration' | 'date';
+  targetDurationMonths: string;
+  targetDate: string;
 }
 
 export interface PersistedExpenseState {
@@ -549,12 +668,16 @@ export interface PersistedState {
 export const getPersistedState = (): PersistedState => ({
   finance: {
     entries: useFinanceStore.getState().entries,
-    usdRate: useFinanceStore.getState().usdRate
+    usdRate: useFinanceStore.getState().usdRate,
+    snapshots: useFinanceStore.getState().snapshots
   },
   planning: {
     goal: usePlanningStore.getState().goal,
     monthlyIncome: usePlanningStore.getState().monthlyIncome,
-    expenses: usePlanningStore.getState().expenses
+    expenses: usePlanningStore.getState().expenses,
+    targetMode: usePlanningStore.getState().targetMode,
+    targetDurationMonths: usePlanningStore.getState().targetDurationMonths,
+    targetDate: usePlanningStore.getState().targetDate
   },
   expenses: {
     entries: useExpenseStore.getState().entries
@@ -572,7 +695,11 @@ export const hydrateFromPersistedState = (persisted: Partial<PersistedState>) =>
   if (finance) {
     useFinanceStore.setState((state) => ({
       entries: finance.entries ?? state.entries,
-      usdRate: finance.usdRate ?? state.usdRate
+      usdRate: finance.usdRate ?? state.usdRate,
+      snapshots:
+        finance.snapshots !== undefined
+          ? finance.snapshots.map(normaliseSnapshot).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
+          : state.snapshots
     }));
   }
 
@@ -589,7 +716,10 @@ export const hydrateFromPersistedState = (persisted: Partial<PersistedState>) =>
       expenses:
         planning.expenses && planning.expenses.length > 0
           ? planning.expenses
-          : [createPlanningExpense()]
+          : [createPlanningExpense()],
+      targetMode: planning.targetMode ?? 'duration',
+      targetDurationMonths: planning.targetDurationMonths ?? '4',
+      targetDate: planning.targetDate ?? ''
     }));
   }
 

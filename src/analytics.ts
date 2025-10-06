@@ -1,8 +1,18 @@
-import { formatCurrency, parseAmount, SpendingEntry, ExtraIncomeEntry, EXPENSE_CATEGORIES, type ExpenseCategory } from './store';
+import {
+  formatCurrency,
+  parseAmount,
+  type NetWorthSnapshot,
+  type SpendingEntry,
+  type ExtraIncomeEntry,
+  EXPENSE_CATEGORIES,
+  type ExpenseCategory
+} from './store';
 
 const dateFormatter = new Intl.DateTimeFormat('tr-TR', {
   month: 'short',
-  day: 'numeric'
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit'
 });
 
 const monthFormatter = new Intl.DateTimeFormat('tr-TR', {
@@ -16,33 +26,29 @@ export interface TrendPoint {
   date: Date;
 }
 
-export const buildNetWorthTrend = (
-  currentNetWorth: number,
-  weeklyLimit: number,
-  weeklySpend: number
-): TrendPoint[] => {
-  const base = Math.max(currentNetWorth, 0);
-  const effectiveWeeklyGrowth = Math.max(weeklyLimit - weeklySpend, base * 0.005);
-  const today = new Date();
-  const points: TrendPoint[] = [];
-
-  // generate 7 weeks prior + current week (total 8 points)
-  for (let idx = 7; idx >= 0; idx -= 1) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - (7 - idx) * 7);
-
-    const variation = Math.sin((idx + 1) / 2) * 0.35;
-    const projected = base - effectiveWeeklyGrowth * (7 - idx) + effectiveWeeklyGrowth * variation * (idx / 7);
-    const value = idx === 7 ? base : Math.max(projected, base * 0.35);
-
-    points.push({
-      label: dateFormatter.format(date),
-      value,
-      date
-    });
+export const buildNetWorthTrend = (snapshots: NetWorthSnapshot[], fallbackNetWorth: number): TrendPoint[] => {
+  if (!snapshots || snapshots.length === 0) {
+    const now = new Date();
+    return [
+      {
+        label: dateFormatter.format(now),
+        value: fallbackNetWorth,
+        date: now
+      }
+    ];
   }
 
-  return points;
+  return snapshots
+    .slice()
+    .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
+    .map((snapshot) => {
+      const date = new Date(snapshot.capturedAt);
+      return {
+        label: dateFormatter.format(date),
+        value: snapshot.value,
+        date
+      };
+    });
 };
 
 export interface MonthlySpendingInsight {
