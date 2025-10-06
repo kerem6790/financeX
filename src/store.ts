@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export const ROW_TYPE_OPTIONS = ['Borç', 'Alacak', 'Nakit', 'Kripto'] as const;
+export const ROW_TYPE_OPTIONS = ['Borç', 'Kredi Kartı', 'Alacak', 'Nakit', 'Kripto'] as const;
 export type RowType = (typeof ROW_TYPE_OPTIONS)[number];
 
 export const UNIT_OPTIONS = ['TL', 'USD'] as const;
@@ -15,6 +15,7 @@ export interface Entry {
   amount: string;
   type: RowType;
   unit: Unit;
+  creditLimit?: string;
 }
 
 export interface NetWorthSnapshot {
@@ -30,7 +31,7 @@ export interface Totals {
 }
 
 export interface CreditCardMeta {
-  issuer: 'QNB' | 'Akbank';
+  issuer: string;
   limit: number;
   debt: number;
 }
@@ -88,6 +89,7 @@ const createEntry = (overrides?: Partial<Entry>): Entry => ({
   amount: '',
   type: 'Nakit',
   unit: 'TL',
+  creditLimit: '',
   ...overrides
 });
 
@@ -262,8 +264,18 @@ export const formatCurrency = (value: number): string => TL_FORMATTER.format(val
 
 export const formatNumber = (value: number): string => NUMBER_FORMATTER.format(value);
 
-export const getCreditCardMeta = (name: string, availableAmountTl: number): CreditCardMeta | null => {
-  const normalized = name.trim().toLowerCase();
+export const getCreditCardMeta = (entry: Entry, availableAmountTl: number): CreditCardMeta | null => {
+  const limitFromEntry = parseAmount(entry.creditLimit ?? '');
+
+  if (entry.type === 'Kredi Kartı' && limitFromEntry > 0) {
+    return {
+      issuer: entry.name || 'Kredi Kartı',
+      limit: limitFromEntry,
+      debt: Math.max(limitFromEntry - availableAmountTl, 0)
+    };
+  }
+
+  const normalized = entry.name.trim().toLowerCase();
 
   if (!normalized) {
     return null;
@@ -308,10 +320,7 @@ interface FinanceState {
 }
 
 export const useFinanceStore = create<FinanceState>((set, get) => ({
-  entries: [
-    createEntry({ name: 'QNB', type: 'Borç', unit: 'TL' }),
-    createEntry({ name: 'Akbank', type: 'Borç', unit: 'TL' })
-  ],
+  entries: [],
   totals: { debt: 0, assets: 0, netWorth: 0 },
   usdRate: '',
   snapshots: [],
@@ -360,9 +369,11 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     entries.forEach((entry) => {
       const amount = parseAmount(entry.amount);
       const amountInTl = entry.unit === 'USD' && numericUsdRate > 0 ? amount * numericUsdRate : amount;
-      const creditCard = getCreditCardMeta(entry.name, amountInTl);
+      const creditCard = getCreditCardMeta(entry, amountInTl);
 
-      if (entry.type === 'Borç') {
+      if (entry.type === 'Kredi Kartı') {
+        debt += creditCard ? creditCard.debt : 0;
+      } else if (entry.type === 'Borç') {
         debt += creditCard ? creditCard.debt : amountInTl;
       } else if (entry.type === 'Alacak' || entry.type === 'Nakit' || entry.type === 'Kripto') {
         assets += amountInTl;

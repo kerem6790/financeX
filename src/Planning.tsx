@@ -120,7 +120,7 @@ const Planning = () => {
               {targetMode === 'duration' ? (
                 <label className="flex flex-col gap-2">
                   <span className="text-sm font-medium text-slate-600">Planlanan süre (ay)</span>
-                  <input
+                <input
                     type="number"
                     min="0.5"
                     step="0.5"
@@ -134,7 +134,7 @@ const Planning = () => {
               ) : (
                 <label className="flex flex-col gap-2">
                   <span className="text-sm font-medium text-slate-600">Hedef tarih</span>
-                  <input
+                <input
                     type="date"
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20"
                     value={targetDate}
@@ -164,59 +164,62 @@ const Planning = () => {
               </p>
             </div>
           ) : null}
+        </div>
+      </div>
 
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-800">Sabit Giderler</h3>
-                <p className="text-sm text-slate-500">Kategori bazlı giderlerinizi ekleyin.</p>
-              </div>
-              <button
-                type="button"
-                onClick={addExpense}
-                className="rounded-full bg-gradient-to-r from-fx-accent-soft to-fx-accent px-4 py-2 text-sm font-semibold text-white shadow-lg transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-fx-accent/30"
+      <div className="rounded-[28px] bg-white p-8 shadow-fx-card transition-shadow duration-300 hover:shadow-xl">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-800">Sabit Giderler</h3>
+              <p className="text-sm text-slate-500">Kategori bazlı giderlerinizi ekleyin.</p>
+            </div>
+            <button
+              type="button"
+              onClick={addExpense}
+              className="rounded-full bg-gradient-to-r from-fx-accent-soft to-fx-accent px-4 py-2 text-sm font-semibold text-white shadow-lg transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-fx-accent/30"
+            >
+              + Gider Ekle
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {expenses.map((expense) => (
+              <div
+                key={expense.id}
+                className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 transition duration-200 hover:border-fx-accent/50 md:flex-row md:items-center"
               >
-                + Gider Ekle
-              </button>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              {expenses.map((expense) => (
-                <div
-                  key={expense.id}
-                  className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 transition duration-200 hover:border-fx-accent/50 md:flex-row md:items-center"
+                <input
+                  type="text"
+                  value={expense.category}
+                  onChange={(event) => updateExpense(expense.id, 'category', event.target.value)}
+                  placeholder="Kategori (örn. Kira)"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20"
+                />
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  value={expense.amount}
+                  onChange={(event) => updateExpense(expense.id, 'amount', event.target.value)}
+                  placeholder="Tutar"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20 md:max-w-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeExpense(expense.id)}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-red-100 bg-red-50 text-lg font-semibold text-red-500 transition duration-200 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={expenses.length === 1}
+                  aria-label="Gideri sil"
                 >
-                  <input
-                    type="text"
-                    value={expense.category}
-                    onChange={(event) => updateExpense(expense.id, 'category', event.target.value)}
-                    placeholder="Kategori (örn. Kira)"
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20"
-                  />
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    value={expense.amount}
-                    onChange={(event) => updateExpense(expense.id, 'amount', event.target.value)}
-                    placeholder="Tutar"
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20 md:max-w-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeExpense(expense.id)}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-red-100 bg-red-50 text-lg font-semibold text-red-500 transition duration-200 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
-                    disabled={expenses.length === 1}
-                    aria-label="Gideri sil"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
+                  ×
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       </div>
+
 
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-[28px] bg-white p-6 shadow-fx-card">

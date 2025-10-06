@@ -64,6 +64,18 @@ export interface NetWorthProjectionPoint {
   withExtra?: number;
 }
 
+export interface ProjectionScenarioSeries {
+  key: string;
+  name: string;
+  color: string;
+  values: number[];
+}
+
+export interface ProjectionCombinationResult {
+  data: Array<Record<string, number | string>>;
+  series: ProjectionScenarioSeries[];
+}
+
 const clampNumber = (value: number): number => (Number.isFinite(value) ? value : 0);
 
 export const buildPlanProjectionSeries = (
@@ -156,6 +168,94 @@ export const buildPlanProjectionWithExtraIncome = (
       withExtra: point.baseline + runningExtra
     };
   });
+};
+
+const scenarioColors = ['#38bdf8', '#22c55e', '#f97316', '#a855f7', '#14b8a6', '#facc15', '#ef4444', '#6366f1'];
+
+const getProjectionLabel = (entries: ProjectionEntry[]): string => {
+  if (entries.length === 0) {
+    return '';
+  }
+
+  if (entries.length === 1) {
+    return entries[0].source || 'Senaryo';
+  }
+
+  return entries
+    .map((entry) => entry.source || 'Senaryo')
+    .filter(Boolean)
+    .join(' + ');
+};
+
+export const buildProjectionCombinationSeries = (
+  currentNetWorth: number,
+  monthlySavingTarget: number,
+  projections: ProjectionEntry[],
+  monthsAhead = 3,
+  maxCombinations = 3
+): ProjectionCombinationResult => {
+  const baseSeries = buildPlanProjectionSeries(currentNetWorth, monthlySavingTarget, monthsAhead);
+  const chartData = baseSeries.map((point) => ({ label: point.label } as Record<string, number | string>));
+  const series: ProjectionScenarioSeries[] = [];
+
+  series.push({ key: 'baseline', name: 'Planlanan tempo', color: scenarioColors[0], values: [] });
+  baseSeries.forEach((point, index) => {
+    const value = Number(point.baseline.toFixed(2));
+    chartData[index].baseline = value;
+    series[0].values.push(value);
+  });
+
+  if (!projections || projections.length === 0) {
+    return { data: chartData, series };
+  }
+
+  const selected = projections.slice(0, maxCombinations);
+  const scenarioCount = 1 << selected.length;
+  const now = new Date();
+
+  for (let mask = 1; mask < scenarioCount; mask += 1) {
+    const involved: ProjectionEntry[] = [];
+    for (let bit = 0; bit < selected.length; bit += 1) {
+      if ((mask & (1 << bit)) !== 0) {
+        involved.push(selected[bit]);
+      }
+    }
+
+    const contributions = new Array(monthsAhead + 1).fill(0);
+
+    involved.forEach((entry) => {
+      const expected = entry.expectedDate ? new Date(entry.expectedDate) : null;
+      if (!expected || Number.isNaN(expected.getTime())) {
+        return;
+      }
+
+      const amount = normaliseProjectionAmount(entry, false);
+      if (amount <= 0) {
+        return;
+      }
+
+      const diffMonths = (expected.getFullYear() - now.getFullYear()) * 12 + (expected.getMonth() - now.getMonth());
+      const index = diffMonths < 0 ? 0 : Math.min(monthsAhead, diffMonths);
+      contributions[index] += amount;
+    });
+
+    const key = `scenario_${series.length}`;
+    const name = getProjectionLabel(involved) || `Senaryo ${series.length}`;
+    const color = scenarioColors[series.length % scenarioColors.length];
+    const values: number[] = [];
+
+    let runningExtra = 0;
+    baseSeries.forEach((point, index) => {
+      runningExtra += contributions[index] ?? 0;
+      const value = Number((point.baseline + runningExtra).toFixed(2));
+      values.push(value);
+      chartData[index][key] = value;
+    });
+
+    series.push({ key, name, color, values });
+  }
+
+  return { data: chartData, series };
 };
 
 export interface MonthlySpendingInsight {

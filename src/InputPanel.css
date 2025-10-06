@@ -1,13 +1,14 @@
 .input-panel-card {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 40px;
 }
 
 .input-panel-layout {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
+  gap: 32px;
+  align-items: flex-start;
 }
 
 .input-panel-column {
@@ -16,52 +17,74 @@
   gap: 24px;
 }
 
-.input-panel-column--side {
-  gap: 20px;
-}
-
 .input-panel-section {
-  border-radius: 24px;
-  background: #ffffff;
-  padding: 24px;
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+  border-radius: 26px;
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 0.92));
+  padding: 28px;
+  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
+}
+
+.input-panel-section--column {
+  min-height: 100%;
 }
 
 .input-panel-section__header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.input-panel-section__header h3 {
+  margin: 0;
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+.input-panel-section__header span {
   font-size: 0.85rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #64748b;
+  letter-spacing: 0.12em;
+  color: #94a3b8;
   font-weight: 600;
 }
 
 .input-panel-section__body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
+}
+
+.input-panel-section--column .input-panel-section__body {
+  flex: 1;
+}
+
+.input-panel-section__footer {
+  margin-top: auto;
 }
 
 .input-panel-item {
-  border-radius: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  background: rgba(248, 250, 252, 0.85);
+  gap: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 28px rgba(148, 163, 184, 0.12);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  backdrop-filter: blur(6px);
 }
 
 .input-panel-item:hover {
-  border-color: rgba(37, 99, 235, 0.36);
-  box-shadow: 0 12px 26px rgba(37, 99, 235, 0.18);
-  transform: translateY(-2px);
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 16px 32px rgba(37, 99, 235, 0.16);
+  transform: translateY(-3px);
 }
 
 .input-panel-item--dragging {
@@ -69,9 +92,11 @@
   box-shadow: 0 12px 36px rgba(15, 23, 42, 0.22);
 }
 
+
 .input-panel-item__row {
   display: flex;
-  gap: 12px;
+  gap: 16px;
+  align-items: flex-end;
 }
 
 .input-panel-item__row--secondary {
@@ -81,8 +106,8 @@
 .input-panel-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 140px;
+  gap: 8px;
+  min-width: 150px;
 }
 
 .input-panel-field--grow {
@@ -90,29 +115,44 @@
 }
 
 .input-panel-field label {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: #94a3b8;
+  line-height: 1.6;
 }
 
 .input-panel-input,
 .input-panel-select {
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: #ffffff;
-  padding: 10px 12px;
-  font-size: 0.95rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  color: #1f2937;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.95);
+  padding: 12px 14px;
+  font-size: 1rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  color: #0f172a;
+  line-height: 1.5;
 }
 
 .input-panel-input:focus,
 .input-panel-select:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.16);
+  background: #ffffff;
+}
+
+.input-panel-input:disabled {
+  background: #e2e8f0;
+  color: #64748b;
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+
+.input-panel-input::placeholder {
+  color: rgba(148, 163, 184, 0.8);
 }
 
 .input-panel-delete {
@@ -146,12 +186,19 @@
   text-align: center;
 }
 
-.input-panel-column--side .input-panel-rate,
-.input-panel-column--side .input-panel-summary {
-  border-radius: 24px;
-  background: #ffffff;
-  padding: 24px;
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+.input-panel-support {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  align-items: stretch;
+}
+
+.input-panel-support .input-panel-rate,
+.input-panel-support .input-panel-summary {
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 26px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
 }
 
 .input-panel-rate__header h3 {
@@ -164,15 +211,15 @@
 .input-panel-rate__control {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .input-panel-rate__input {
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  padding: 10px 12px;
-  font-size: 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  padding: 12px 14px;
+  font-size: 1rem;
 }
 
 .input-panel-rate__input:focus {
@@ -189,20 +236,21 @@
 .input-panel-summary {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .input-panel-summary__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.9rem;
-  color: #475569;
+  font-size: 0.95rem;
+  color: #1f2937;
 }
 
 .input-panel-summary__value {
   font-weight: 700;
   color: #0f172a;
+  letter-spacing: -0.01em;
 }
 
 .input-panel-summary__value--positive {
@@ -214,17 +262,17 @@
 }
 
 .input-panel-hint {
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   color: #475569;
-  opacity: 0.8;
-}
-
-.input-panel-actions {
-  display: flex;
-  justify-content: flex-start;
+  opacity: 0.85;
+  line-height: 1.6;
 }
 
 .input-panel-add {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   border-radius: 999px;
   padding: 12px 20px;
@@ -252,13 +300,13 @@
     grid-template-columns: 1fr 1fr;
   }
 
-  .input-panel-column--side {
-    grid-column: span 2;
-    flex-direction: row;
+  .input-panel-layout {
+    gap: 28px;
   }
 
-  .input-panel-column--side > * {
-    flex: 1;
+  .input-panel-support {
+    grid-template-columns: 1fr;
+    gap: 24px;
   }
 }
 
@@ -267,7 +315,8 @@
     grid-template-columns: 1fr;
   }
 
-  .input-panel-column--side {
-    flex-direction: column;
+  .input-panel-support {
+    grid-template-columns: 1fr;
+    gap: 20px;
   }
 }
