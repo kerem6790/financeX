@@ -1,10 +1,8 @@
 import type { DragEvent } from 'react';
-import { useCallback, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useState } from 'react';
 import {
   ROW_TYPE_OPTIONS,
-  UNIT_OPTIONS,
   formatCurrency,
-  formatNumber,
   getCreditCardMeta,
   parseAmount,
   useFinanceStore,
@@ -15,6 +13,15 @@ import {
 import './InputPanel.css';
 
 const GENERAL_ROW_TYPES = ROW_TYPE_OPTIONS.filter((option) => option !== 'Kredi Kartı');
+const UNIT_BADGE_BY_TYPE: Record<RowType, Unit> = {
+  Borç: 'TL',
+  'Kredi Kartı': 'TL',
+  Alacak: 'TL',
+  Nakit: 'TL',
+  Kripto: 'USD'
+};
+
+type SectionKey = 'assets' | 'cards' | 'debts' | 'crypto';
 
 const InputPanel = () => {
   const entries = useFinanceStore((state) => state.entries);
@@ -27,6 +34,12 @@ const InputPanel = () => {
   const setUsdRate = useFinanceStore((state) => state.setUsdRate);
 
   const [draggedRowId, setDraggedRowId] = useState<string | null>(null);
+  const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
+    assets: false,
+    cards: false,
+    debts: false,
+    crypto: false
+  });
 
   const handleRowChange = useCallback(
     <Key extends keyof Omit<Entry, 'id'>>(id: string, key: Key, value: Entry[Key]) => {
@@ -39,7 +52,7 @@ const InputPanel = () => {
     setDraggedRowId(id);
   }, []);
 
-  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+  const handleDragOver = useCallback((event: DragEvent<HTMLElement>) => {
     event.preventDefault();
   }, []);
 
@@ -55,6 +68,10 @@ const InputPanel = () => {
 
   const handleDragEnd = useCallback(() => {
     setDraggedRowId(null);
+  }, []);
+
+  const toggleSection = useCallback((section: SectionKey) => {
+    setCollapsedSections((previous) => ({ ...previous, [section]: !previous[section] }));
   }, []);
 
   const numericUsdRate = parseAmount(usdRate);
@@ -111,52 +128,59 @@ const InputPanel = () => {
     return hasUsdEntry && numericUsdRate === 0;
   }, [entries, numericUsdRate]);
 
-  const renderEntry = useCallback(
-    (entry: Entry) => {
+  const isAssetsCollapsed = collapsedSections.assets;
+  const isCardsCollapsed = collapsedSections.cards;
+  const isDebtsCollapsed = collapsedSections.debts;
+  const isCryptoCollapsed = collapsedSections.crypto;
+
+  const renderGeneralEntry = useCallback(
+    (entry: Entry, colSpan: number, amountLabel: string, amountPlaceholder: string) => {
       const amount = parseAmount(entry.amount);
       const amountInTl = convertToTl(amount, entry.unit);
       const creditCardMeta = getCreditCardMeta(entry, amountInTl);
       const isDragging = draggedRowId === entry.id;
+      const showDebtHint = entry.type === 'Borç' && creditCardMeta !== null;
+      const badgeLabel = UNIT_BADGE_BY_TYPE[entry.type];
 
       return (
-        <div
-          key={entry.id}
-          className={`input-panel-item${isDragging ? ' input-panel-item--dragging' : ''}`}
-          draggable
-          onDragStart={() => handleDragStart(entry.id)}
-          onDragOver={handleDragOver}
-          onDrop={() => handleDrop(entry.id)}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="input-panel-item__row">
-            <div className="input-panel-field input-panel-field--grow">
-              <label>Kaynak</label>
+        <Fragment key={entry.id}>
+          <tr
+            className={`input-table__row${isDragging ? ' input-table__row--dragging' : ''}`}
+            draggable
+            onDragStart={() => handleDragStart(entry.id)}
+            onDragOver={handleDragOver}
+            onDrop={() => handleDrop(entry.id)}
+            onDragEnd={handleDragEnd}
+          >
+            <td className="input-table__cell-wrapper input-table__cell-wrapper--grow">
               <input
-                className="input-panel-input"
+                className="input-table__cell input-table__cell--grow"
                 value={entry.name}
                 onChange={(event) => handleRowChange(entry.id, 'name', event.target.value)}
                 placeholder="örn. QNB"
+                aria-label="Kaynak"
               />
-            </div>
-            <div className="input-panel-field">
-              <label>Tutar</label>
-              <input
-                className="input-panel-input"
-                type="number"
-                inputMode="decimal"
-                value={entry.amount}
-                onChange={(event) => handleRowChange(entry.id, 'amount', event.target.value)}
-                placeholder="örn. 15000"
-              />
-            </div>
-          </div>
-          <div className="input-panel-item__row input-panel-item__row--secondary">
-            <div className="input-panel-field">
-              <label>Tür</label>
+            </td>
+            <td className="input-table__cell-wrapper">
+              <div className="input-table__input-group">
+                <input
+                  className="input-table__cell input-table__cell--number"
+                  type="number"
+                  inputMode="decimal"
+                  value={entry.amount}
+                  onChange={(event) => handleRowChange(entry.id, 'amount', event.target.value)}
+                  placeholder={amountPlaceholder}
+                  aria-label={amountLabel}
+                />
+                <span className="input-table__badge">{badgeLabel}</span>
+              </div>
+            </td>
+            <td className="input-table__cell-wrapper">
               <select
-                className="input-panel-select"
+                className="input-table__cell"
                 value={entry.type}
                 onChange={(event) => handleRowChange(entry.id, 'type', event.target.value as RowType)}
+                aria-label="Tür"
               >
                 {GENERAL_ROW_TYPES.map((option) => (
                   <option key={option} value={option}>
@@ -164,209 +188,303 @@ const InputPanel = () => {
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="input-panel-field">
-              <label>Birim</label>
-              <select
-                className="input-panel-select"
-                value={entry.unit}
-                onChange={(event) => handleRowChange(entry.id, 'unit', event.target.value as Unit)}
+            </td>
+            <td className="input-table__actions">
+              <button
+                type="button"
+                className="input-table__delete"
+                onClick={() => removeEntry(entry.id)}
+                aria-label={`${entry.name || 'Kalem'} satırını sil`}
               >
-                {UNIT_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              className="input-panel-delete"
-              onClick={() => removeEntry(entry.id)}
-              aria-label={`${entry.name || 'Kalem'} satırını sil`}
-            >
-              ×
-            </button>
-          </div>
-          {entry.type === 'Borç' && creditCardMeta ? (
-            <div className="input-panel-item__meta">
-              {creditCardMeta.issuer} kart borcu: {formatNumber(creditCardMeta.debt)} ₺
-            </div>
+                ×
+              </button>
+            </td>
+          </tr>
+          {showDebtHint ? (
+            <tr className="input-table__meta-row">
+              <td colSpan={colSpan} className="input-table__meta input-table__meta--warning">
+                Tanınan limit borcu: {formatCurrency(creditCardMeta!.debt)}
+              </td>
+            </tr>
           ) : null}
-        </div>
+        </Fragment>
       );
     },
-    [convertToTl, draggedRowId, handleDragEnd, handleDragOver, handleDrop, handleDragStart, handleRowChange, removeEntry]
+    [
+      convertToTl,
+      draggedRowId,
+      handleDragEnd,
+      handleDragOver,
+      handleDrop,
+      handleDragStart,
+      handleRowChange,
+      removeEntry
+    ]
   );
 
   const renderCreditCardEntry = useCallback(
-    (entry: Entry) => {
+    (entry: Entry, colSpan: number) => {
       const totalLimit = parseAmount(entry.creditLimit ?? '');
       const availableInTl = convertToTl(parseAmount(entry.amount), entry.unit);
       const meta = getCreditCardMeta(entry, availableInTl);
       const isDragging = draggedRowId === entry.id;
+      const badgeLabel = UNIT_BADGE_BY_TYPE[entry.type];
+
+      const metaContent = meta ? (
+        <>
+          Kart borcu: {formatCurrency(meta.debt)}
+          <span className="input-table__meta-divider"> · Limit {formatCurrency(meta.limit)}</span>
+        </>
+      ) : totalLimit > 0 ? (
+        'Limit ve kullanılabilir tutar girildiğinde borç hesaplanır.'
+      ) : (
+        'Limit girildiğinde borç otomatik hesaplanır.'
+      );
 
       return (
-        <div
-          key={entry.id}
-          className={`input-panel-item${isDragging ? ' input-panel-item--dragging' : ''}`}
-          draggable
-          onDragStart={() => handleDragStart(entry.id)}
-          onDragOver={handleDragOver}
-          onDrop={() => handleDrop(entry.id)}
-          onDragEnd={handleDragEnd}
-        >
-          <div className="input-panel-item__row">
-            <div className="input-panel-field input-panel-field--grow">
-              <label>Kart</label>
+        <Fragment key={entry.id}>
+          <tr
+            className={`input-table__row${isDragging ? ' input-table__row--dragging' : ''}`}
+            draggable
+            onDragStart={() => handleDragStart(entry.id)}
+            onDragOver={handleDragOver}
+            onDrop={() => handleDrop(entry.id)}
+            onDragEnd={handleDragEnd}
+          >
+            <td className="input-table__cell-wrapper input-table__cell-wrapper--grow">
               <input
-                className="input-panel-input"
+                className="input-table__cell input-table__cell--grow"
                 value={entry.name}
                 onChange={(event) => handleRowChange(entry.id, 'name', event.target.value)}
                 placeholder="örn. QNB"
+                aria-label="Kart"
               />
-            </div>
-            <div className="input-panel-field">
-              <label>Toplam Limit</label>
-              <input
-                className="input-panel-input"
-                type="number"
-                min="0"
-                inputMode="decimal"
-                value={entry.creditLimit ?? ''}
-                onChange={(event) => handleRowChange(entry.id, 'creditLimit', event.target.value)}
-                placeholder="örn. 282000"
-              />
-            </div>
-            <div className="input-panel-field">
-              <label>Kullanılabilir Limit</label>
-              <input
-                className="input-panel-input"
-                type="number"
-                min="0"
-                inputMode="decimal"
-                value={entry.amount}
-                onChange={(event) => handleRowChange(entry.id, 'amount', event.target.value)}
-                placeholder="örn. 150000"
-              />
-            </div>
-          </div>
-          <div className="input-panel-item__row input-panel-item__row--secondary">
-            <div className="input-panel-field">
-              <label>Birim</label>
-              <input className="input-panel-input" value="TL" disabled />
-            </div>
-            <button
-              type="button"
-              className="input-panel-delete"
-              onClick={() => removeEntry(entry.id)}
-              aria-label={`${entry.name || 'Kredi kartı'} satırını sil`}
-            >
-              ×
-            </button>
-          </div>
-          <div className="input-panel-item__meta">
-            {meta ? (
-              <>
-                Kart borcu: {formatCurrency(meta.debt)}
-                <span className="text-slate-400"> · Limit {formatCurrency(meta.limit)}</span>
-              </>
-            ) : totalLimit > 0 ? (
-              'Limit ve kullanılabilir tutar girildiğinde borç hesaplanır.'
-            ) : (
-              'Limit girildiğinde borç otomatik hesaplanır.'
-            )}
-          </div>
-        </div>
+            </td>
+            <td className="input-table__cell-wrapper">
+              <div className="input-table__input-group">
+                <input
+                  className="input-table__cell input-table__cell--number"
+                  type="number"
+                  min="0"
+                  inputMode="decimal"
+                  value={entry.creditLimit ?? ''}
+                  onChange={(event) => handleRowChange(entry.id, 'creditLimit', event.target.value)}
+                  placeholder="örn. 282000"
+                  aria-label="Toplam Limit"
+                />
+                <span className="input-table__badge">{badgeLabel}</span>
+              </div>
+            </td>
+            <td className="input-table__cell-wrapper">
+              <div className="input-table__input-group">
+                <input
+                  className="input-table__cell input-table__cell--number"
+                  type="number"
+                  min="0"
+                  inputMode="decimal"
+                  value={entry.amount}
+                  onChange={(event) => handleRowChange(entry.id, 'amount', event.target.value)}
+                  placeholder="örn. 150000"
+                  aria-label="Kullanılabilir Limit"
+                />
+                <span className="input-table__badge">{badgeLabel}</span>
+              </div>
+            </td>
+            <td className="input-table__actions">
+              <button
+                type="button"
+                className="input-table__delete"
+                onClick={() => removeEntry(entry.id)}
+                aria-label={`${entry.name || 'Kredi kartı'} satırını sil`}
+              >
+                ×
+              </button>
+            </td>
+          </tr>
+          <tr className="input-table__meta-row">
+            <td colSpan={colSpan} className="input-table__meta">
+              {metaContent}
+            </td>
+          </tr>
+        </Fragment>
       );
     },
     [convertToTl, draggedRowId, handleDragEnd, handleDragOver, handleDrop, handleDragStart, handleRowChange, removeEntry]
   );
 
+  const generalColSpan = 4;
+  const creditCardColSpan = 4;
+
   return (
     <div className="input-panel-card">
-      <div className="input-panel-layout">
-        <div className="input-panel-column">
-          <div className="input-panel-section input-panel-section--column">
-            <div className="input-panel-section__header">
-              <h3>Varlıklar & Alacaklar</h3>
-              <span>{assetsAndReceivables.length} kalem</span>
+      <div className="finance-grid">
+        <section className={`finance-table-card${isAssetsCollapsed ? ' finance-table-card--collapsed' : ''}`}>
+          <div className="finance-table-card__header">
+            <div className="finance-table-card__title-group">
+              <span className="finance-table-card__title">Varlıklar &amp; Alacaklar</span>
+              <span className="finance-table-card__count">{assetsAndReceivables.length} satır</span>
             </div>
-            <div className="input-panel-section__body">
-              {assetsAndReceivables.length === 0 ? (
-                <p className="input-panel-empty">Eklenmiş varlık bulunmuyor.</p>
-              ) : (
-                assetsAndReceivables.map(renderEntry)
-              )}
-            </div>
-            <div className="input-panel-section__footer">
-              <button type="button" className="input-panel-add" onClick={handleAddAsset}>
+            <div className="finance-table-card__controls">
+              <button
+                type="button"
+                className="finance-table__toggle"
+                onClick={() => toggleSection('assets')}
+                aria-expanded={!isAssetsCollapsed}
+                aria-controls="finance-table-assets"
+              >
+                {isAssetsCollapsed ? 'Göster' : 'Daralt'}
+              </button>
+              <button type="button" className="finance-table__add" onClick={handleAddAsset}>
                 + Yeni Kalem
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="input-panel-column">
-          <div className="input-panel-section input-panel-section--column">
-            <div className="input-panel-section__header">
-              <h3>Kredi Kartları</h3>
-              <span>{creditCards.length} kart</span>
-            </div>
-            <div className="input-panel-section__body">
-              {creditCards.length === 0 ? (
-                <p className="input-panel-empty">Henüz kredi kartı eklenmedi.</p>
+          <table className="input-table" id="finance-table-assets" hidden={isAssetsCollapsed}>
+            <thead>
+              <tr>
+                <th>Kaynak</th>
+                <th>Tutar</th>
+                <th>Tür</th>
+                <th className="input-table__actions-header">İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assetsAndReceivables.length === 0 ? (
+                <tr className="input-table__empty-row">
+                  <td colSpan={generalColSpan}>Eklenmiş varlık bulunmuyor.</td>
+                </tr>
               ) : (
-                creditCards.map(renderCreditCardEntry)
+                assetsAndReceivables.map((entry) => renderGeneralEntry(entry, generalColSpan, 'Tutar', 'örn. 15000'))
               )}
+            </tbody>
+          </table>
+        </section>
+
+        <section className={`finance-table-card${isCardsCollapsed ? ' finance-table-card--collapsed' : ''}`}>
+          <div className="finance-table-card__header">
+            <div className="finance-table-card__title-group">
+              <span className="finance-table-card__title">Kredi Kartları</span>
+              <span className="finance-table-card__count">{creditCards.length} satır</span>
             </div>
-            <div className="input-panel-section__footer">
-              <button type="button" className="input-panel-add" onClick={handleAddCreditCard}>
+            <div className="finance-table-card__controls">
+              <button
+                type="button"
+                className="finance-table__toggle"
+                onClick={() => toggleSection('cards')}
+                aria-expanded={!isCardsCollapsed}
+                aria-controls="finance-table-cards"
+              >
+                {isCardsCollapsed ? 'Göster' : 'Daralt'}
+              </button>
+              <button type="button" className="finance-table__add" onClick={handleAddCreditCard}>
                 + Kredi Kartı
               </button>
             </div>
           </div>
-
-          <div className="input-panel-section input-panel-section--column">
-            <div className="input-panel-section__header">
-              <h3>Diğer Borçlar</h3>
-              <span>{debts.length} kalem</span>
-            </div>
-            <div className="input-panel-section__body">
-              {debts.length === 0 ? (
-                <p className="input-panel-empty">Henüz borç bilgisi eklenmedi.</p>
+          <table className="input-table" id="finance-table-cards" hidden={isCardsCollapsed}>
+            <thead>
+              <tr>
+                <th>Kart</th>
+                <th>Toplam Limit</th>
+                <th>Kullanılabilir</th>
+                <th className="input-table__actions-header">İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {creditCards.length === 0 ? (
+                <tr className="input-table__empty-row">
+                  <td colSpan={creditCardColSpan}>Henüz kredi kartı eklenmedi.</td>
+                </tr>
               ) : (
-                debts.map(renderEntry)
+                creditCards.map((entry) => renderCreditCardEntry(entry, creditCardColSpan))
               )}
+            </tbody>
+          </table>
+        </section>
+
+        <section className={`finance-table-card${isDebtsCollapsed ? ' finance-table-card--collapsed' : ''}`}>
+          <div className="finance-table-card__header">
+            <div className="finance-table-card__title-group">
+              <span className="finance-table-card__title">Diğer Borçlar</span>
+              <span className="finance-table-card__count">{debts.length} satır</span>
             </div>
-            <div className="input-panel-section__footer">
-              <button type="button" className="input-panel-add" onClick={handleAddDebt}>
+            <div className="finance-table-card__controls">
+              <button
+                type="button"
+                className="finance-table__toggle"
+                onClick={() => toggleSection('debts')}
+                aria-expanded={!isDebtsCollapsed}
+                aria-controls="finance-table-debts"
+              >
+                {isDebtsCollapsed ? 'Göster' : 'Daralt'}
+              </button>
+              <button type="button" className="finance-table__add" onClick={handleAddDebt}>
                 + Yeni Borç
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="input-panel-column">
-          <div className="input-panel-section input-panel-section--column">
-            <div className="input-panel-section__header">
-              <h3>Kripto (USD)</h3>
-              <span>{cryptos.length} kalem</span>
-            </div>
-            <div className="input-panel-section__body">
-              {cryptos.length === 0 ? (
-                <p className="input-panel-empty">Henüz kripto varlık eklenmedi.</p>
+          <table className="input-table" id="finance-table-debts" hidden={isDebtsCollapsed}>
+            <thead>
+              <tr>
+                <th>Kaynak</th>
+                <th>Tutar</th>
+                <th>Tür</th>
+                <th className="input-table__actions-header">İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {debts.length === 0 ? (
+                <tr className="input-table__empty-row">
+                  <td colSpan={generalColSpan}>Henüz borç bilgisi eklenmedi.</td>
+                </tr>
               ) : (
-                cryptos.map(renderEntry)
+                debts.map((entry) => renderGeneralEntry(entry, generalColSpan, 'Tutar', 'örn. 15000'))
               )}
+            </tbody>
+          </table>
+        </section>
+
+        <section className={`finance-table-card${isCryptoCollapsed ? ' finance-table-card--collapsed' : ''}`}>
+          <div className="finance-table-card__header">
+            <div className="finance-table-card__title-group">
+              <span className="finance-table-card__title">Kripto (USD)</span>
+              <span className="finance-table-card__count">{cryptos.length} satır</span>
             </div>
-            <div className="input-panel-section__footer">
-              <button type="button" className="input-panel-add" onClick={handleAddCrypto}>
+            <div className="finance-table-card__controls">
+              <button
+                type="button"
+                className="finance-table__toggle"
+                onClick={() => toggleSection('crypto')}
+                aria-expanded={!isCryptoCollapsed}
+                aria-controls="finance-table-crypto"
+              >
+                {isCryptoCollapsed ? 'Göster' : 'Daralt'}
+              </button>
+              <button type="button" className="finance-table__add" onClick={handleAddCrypto}>
                 + Yeni Kalem
               </button>
             </div>
           </div>
-        </div>
+          <table className="input-table" id="finance-table-crypto" hidden={isCryptoCollapsed}>
+            <thead>
+              <tr>
+                <th>Kaynak</th>
+                <th>Miktar</th>
+                <th>Tür</th>
+                <th className="input-table__actions-header">İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cryptos.length === 0 ? (
+                <tr className="input-table__empty-row">
+                  <td colSpan={generalColSpan}>Henüz kripto varlık eklenmedi.</td>
+                </tr>
+              ) : (
+                cryptos.map((entry) => renderGeneralEntry(entry, generalColSpan, 'Miktar', 'örn. 0.5'))
+              )}
+            </tbody>
+          </table>
+        </section>
       </div>
 
       <div className="input-panel-support">

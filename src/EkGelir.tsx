@@ -17,6 +17,7 @@ const initialFormState = {
 const EkGelir = () => {
   const netWorth = useFinanceStore((state) => state.totals.netWorth);
   const planningMetrics = usePlanningStore((state) => state.metrics);
+  const monthlyIncomeDay = usePlanningStore((state) => state.monthlyIncomeDay);
   const projections = useProjectionStore((state) => state.entries);
   const addProjection = useProjectionStore((state) => state.addProjection);
   const removeProjection = useProjectionStore((state) => state.removeProjection);
@@ -54,10 +55,28 @@ const EkGelir = () => {
 
   const scenarioNetWorth = netWorth + totals.total;
 
-  const projectionCombinations = useMemo(
-    () => buildProjectionCombinationSeries(netWorth, planningMetrics.monthlySavingTarget, projections, 3, 3),
-    [netWorth, planningMetrics.monthlySavingTarget, projections]
-  );
+  const projectionCombinations = useMemo(() => {
+    const parsed = Number.parseInt(monthlyIncomeDay, 10);
+    const incomeDay = Number.isFinite(parsed) ? parsed : 1;
+    return buildProjectionCombinationSeries(netWorth, planningMetrics.monthlySavingTarget, projections, 3, 3, incomeDay);
+  }, [monthlyIncomeDay, netWorth, planningMetrics.monthlySavingTarget, projections]);
+
+  const sortedProjectionSeries = useMemo(() => {
+    if (projectionCombinations.series.length === 0) {
+      return [];
+    }
+
+    const [baseline, ...rest] = projectionCombinations.series;
+    const sortedRest = rest
+      .slice()
+      .sort((a, b) => {
+        const aValue = a.values[a.values.length - 1] ?? 0;
+        const bValue = b.values[b.values.length - 1] ?? 0;
+        return bValue - aValue;
+      });
+
+    return [...sortedRest, baseline];
+  }, [projectionCombinations]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -286,17 +305,19 @@ const EkGelir = () => {
                     <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 6" vertical={false} />
                     <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
                     <YAxis
+                      width={96}
+                      tickMargin={12}
                       tickLine={false}
                       axisLine={false}
                       tick={{ fill: '#64748b', fontSize: 12 }}
-                      tickFormatter={(value) => formatCurrency(value).replace('₺', '')}
+                      tickFormatter={(value) => formatCurrency(value).replace('₺', '₺ ')}
                     />
                     <Tooltip
-                      formatter={(value: number, name: string) => [formatCurrency(Number(value)), name]}
+                      formatter={(value: number, name: string) => [formatCurrency(Number(value)), `${name} net değer`]}
                       labelStyle={{ fontWeight: 600 }}
                       contentStyle={{ borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 18px 42px rgba(148,163,184,0.25)' }}
                     />
-                    {projectionCombinations.series.map((seriesMeta, index) => (
+                    {sortedProjectionSeries.map((seriesMeta, index) => (
                       <Line
                         key={seriesMeta.key}
                         type="monotone"

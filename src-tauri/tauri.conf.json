@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/1",
-  "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
-    "devPath": "http://localhost:5173",
-    "distDir": "../dist"
-  },
+"build": {
+  "beforeDevCommand": "npm run dev",
+  "beforeBuildCommand": "npm run build",
+  "devPath": "http://localhost:5173",
+  "distDir": "../dist"
+},
   "package": {
     "productName": "financeX",
     "version": "0.1.0"

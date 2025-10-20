@@ -153,13 +153,15 @@ const Dashboard = () => {
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 8" vertical={false} />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
                 <YAxis
+                  width={96}
+                  tickMargin={12}
                   tickLine={false}
                   axisLine={false}
                   tick={{ fill: '#64748b', fontSize: 12 }}
-                  tickFormatter={(value) => formatCurrency(value).replace('₺', '')}
+                  tickFormatter={(value) => formatCurrency(value).replace('₺', '₺ ')}
                 />
                 <Tooltip
-                  formatter={(value: number) => formatCurrencyLabel(value)}
+                  formatter={(value: number) => [formatCurrencyLabel(value), 'Net değer']}
                   labelStyle={{ fontWeight: 600 }}
                   contentStyle={{ borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 18px 42px rgba(148,163,184,0.25)' }}
                 />

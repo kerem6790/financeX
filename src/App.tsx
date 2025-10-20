@@ -13,7 +13,6 @@ interface TabConfig {
   label: string;
   heading: string;
   subtitle?: string;
-  placeholder?: string;
   render?: () => JSX.Element;
 }
 
@@ -28,22 +27,19 @@ const tabs: TabConfig[] = [
     key: 'dashboard',
     label: 'Dashboard',
     heading: 'Dashboard',
-    subtitle: 'Yakında aktif olacak.',
-    placeholder: 'Dashboard – Çok yakında.'
+    subtitle: 'Finansal özet ve trendler burada.'
   },
   {
     key: 'expenses',
     label: 'Harcamalar',
     heading: 'Harcamalar',
-    subtitle: 'Yakında harcama analizi burada olacak.',
-    placeholder: 'Harcamalar – Çok yakında.'
+    subtitle: 'Güncel harcamalarınızın kaydı.'
   },
   {
     key: 'planning',
     label: 'Planlama',
     heading: 'Planlama',
-    subtitle: 'Bütçe ve hedef planlama ekranı yolda.',
-    placeholder: 'Planlama – Çok yakında.'
+    subtitle: 'Bütçe hedefleri ve projeksiyonları yönetin.'
   },
   {
     key: 'extra-income',
@@ -102,16 +98,9 @@ function App() {
             <Dashboard />
           ) : isExpenses ? (
             <Expenses />
-          ) : (
-            activeContent.render ? (
-              activeContent.render()
-            ) : (
-              <div className="placeholder">
-                <p>{activeContent.placeholder}</p>
-                <p>Bu alan yakında ilgili sekmenin içerikleriyle güncellenecek.</p>
-              </div>
-            )
-          )}
+          ) : activeContent.render ? (
+            activeContent.render()
+          ) : null}
         </section>
       </main>
     </div>

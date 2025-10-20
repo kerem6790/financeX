@@ -78,30 +78,66 @@ export interface ProjectionCombinationResult {
 
 const clampNumber = (value: number): number => (Number.isFinite(value) ? value : 0);
 
+const clampDayForMonth = (year: number, month: number, day: number): number => {
+  if (!Number.isFinite(day)) {
+    return 1;
+  }
+
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const safeDay = Math.max(1, Math.min(Math.floor(day), lastDay));
+  return Number.isFinite(safeDay) ? safeDay : 1;
+};
+
+const resolveIncomeDate = (start: Date, day: number, offset: number): Date => {
+  const base = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const clampCurrent = clampDayForMonth(base.getFullYear(), base.getMonth(), day);
+
+  let firstOccurrence: Date;
+  if (base.getDate() <= clampCurrent) {
+    firstOccurrence = new Date(base.getFullYear(), base.getMonth(), clampCurrent);
+  } else {
+    const nextMonth = new Date(base.getFullYear(), base.getMonth() + 1, 1);
+    const clampNext = clampDayForMonth(nextMonth.getFullYear(), nextMonth.getMonth(), day);
+    firstOccurrence = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), clampNext);
+  }
+
+  if (offset <= 1) {
+    return firstOccurrence;
+  }
+
+  const monthIndex = firstOccurrence.getMonth() + (offset - 1);
+  const targetYear = firstOccurrence.getFullYear() + Math.floor(monthIndex / 12);
+  const targetMonth = ((monthIndex % 12) + 12) % 12;
+  const clampTarget = clampDayForMonth(targetYear, targetMonth, day);
+  return new Date(targetYear, targetMonth, clampTarget);
+};
+
 export const buildPlanProjectionSeries = (
   currentNetWorth: number,
   monthlySavingTarget: number,
-  monthsAhead = 3
+  monthsAhead = 3,
+  incomeDay = 1
 ): NetWorthProjectionPoint[] => {
   const base = clampNumber(currentNetWorth);
   const monthlyDelta = clampNumber(monthlySavingTarget);
   const start = new Date();
-  const reference = new Date(start.getFullYear(), start.getMonth(), 1);
+  start.setHours(0, 0, 0, 0);
 
   const points: NetWorthProjectionPoint[] = [];
+  points.push({
+    label: projectionFormatter.format(start),
+    date: start,
+    baseline: base
+  });
+
   let runningTotal = base;
 
-  for (let idx = 0; idx <= monthsAhead; idx += 1) {
-    if (idx > 0) {
-      runningTotal += monthlyDelta;
-    }
-
-    const date = new Date(reference);
-    date.setMonth(reference.getMonth() + idx);
-
+  for (let idx = 1; idx <= monthsAhead; idx += 1) {
+    runningTotal += monthlyDelta;
+    const projectedDate = resolveIncomeDate(start, incomeDay, idx);
     points.push({
-      label: projectionFormatter.format(date),
-      date,
+      label: projectionFormatter.format(projectedDate),
+      date: projectedDate,
       baseline: runningTotal
     });
   }
@@ -128,16 +164,16 @@ export const buildPlanProjectionWithExtraIncome = (
   monthlySavingTarget: number,
   projections: ProjectionEntry[],
   monthsAhead = 3,
-  weighted = true
+  weighted = true,
+  incomeDay = 1
 ): NetWorthProjectionPoint[] => {
-  const baseSeries = buildPlanProjectionSeries(currentNetWorth, monthlySavingTarget, monthsAhead);
+  const baseSeries = buildPlanProjectionSeries(currentNetWorth, monthlySavingTarget, monthsAhead, incomeDay);
 
   if (!projections || projections.length === 0) {
     return baseSeries.map((point) => ({ ...point, withExtra: point.baseline }));
   }
 
-  const now = new Date();
-  const contributions: number[] = new Array(monthsAhead + 1).fill(0);
+  const extrasAccumulator = new Array(baseSeries.length).fill(0);
 
   projections.forEach((entry) => {
     const expected = entry.expectedDate ? new Date(entry.expectedDate) : null;
@@ -150,19 +186,14 @@ export const buildPlanProjectionWithExtraIncome = (
       return;
     }
 
-    const diffMonths = (expected.getFullYear() - now.getFullYear()) * 12 + (expected.getMonth() - now.getMonth());
-    if (diffMonths < 0) {
-      contributions[0] += amount;
-      return;
-    }
-
-    const index = Math.min(monthsAhead, diffMonths);
-    contributions[index] += amount;
+    const index = baseSeries.findIndex((point) => expected <= point.date);
+    const targetIndex = index === -1 ? baseSeries.length - 1 : index;
+    extrasAccumulator[targetIndex] += amount;
   });
 
   let runningExtra = 0;
   return baseSeries.map((point, index) => {
-    runningExtra += contributions[index] ?? 0;
+    runningExtra += extrasAccumulator[index] ?? 0;
     return {
       ...point,
       withExtra: point.baseline + runningExtra
@@ -192,9 +223,10 @@ export const buildProjectionCombinationSeries = (
   monthlySavingTarget: number,
   projections: ProjectionEntry[],
   monthsAhead = 3,
-  maxCombinations = 3
+  maxCombinations = 3,
+  incomeDay = 1
 ): ProjectionCombinationResult => {
-  const baseSeries = buildPlanProjectionSeries(currentNetWorth, monthlySavingTarget, monthsAhead);
+  const baseSeries = buildPlanProjectionSeries(currentNetWorth, monthlySavingTarget, monthsAhead, incomeDay);
   const chartData = baseSeries.map((point) => ({ label: point.label } as Record<string, number | string>));
   const series: ProjectionScenarioSeries[] = [];
 

@@ -75,6 +75,13 @@ const NUMBER_FORMATTER = new Intl.NumberFormat('tr-TR', {
   maximumFractionDigits: 0
 });
 
+const getUnitForType = (type: RowType): Unit => (type === 'Kripto' ? 'USD' : 'TL');
+
+const applyUnitForType = (entry: Entry): Entry => {
+  const expectedUnit = getUnitForType(entry.type);
+  return entry.unit === expectedUnit ? entry : { ...entry, unit: expectedUnit };
+};
+
 const generateId = (): string => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();
@@ -88,7 +95,7 @@ const createEntry = (overrides?: Partial<Entry>): Entry => ({
   name: '',
   amount: '',
   type: 'Nakit',
-  unit: 'TL',
+  unit: getUnitForType(overrides?.type ?? 'Nakit'),
   creditLimit: '',
   ...overrides
 });
@@ -326,12 +333,24 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   snapshots: [],
   updateEntry: (id, key, value) => {
     set((state) => ({
-      entries: state.entries.map((entry) => (entry.id === id ? { ...entry, [key]: value } : entry))
+      entries: state.entries.map((entry) => {
+        if (entry.id !== id) {
+          return entry;
+        }
+
+        if (key === 'type') {
+          const nextType = value as RowType;
+          return applyUnitForType({ ...entry, type: nextType });
+        }
+
+        const updated = { ...entry, [key]: value };
+        return applyUnitForType(updated);
+      })
     }));
     get().autoCalculateTotals();
   },
   addEntry: (overrides) => {
-    set((state) => ({ entries: [...state.entries, createEntry(overrides)] }));
+    set((state) => ({ entries: [...state.entries, applyUnitForType(createEntry(overrides))] }));
     get().autoCalculateTotals();
   },
   removeEntry: (id) => {
@@ -478,6 +497,7 @@ const emptyMetrics: PlanningMetrics = {
 interface PlanningState {
   goal: string;
   monthlyIncome: string;
+  monthlyIncomeDay: string;
   expenses: FixedExpense[];
   metrics: PlanningMetrics;
   targetMode: 'duration' | 'date';
@@ -485,6 +505,7 @@ interface PlanningState {
   targetDate: string;
   setGoal: (value: string) => void;
   setMonthlyIncome: (value: string) => void;
+  setMonthlyIncomeDay: (value: string) => void;
   setTargetMode: (mode: 'duration' | 'date') => void;
   setTargetDurationMonths: (value: string) => void;
   setTargetDate: (value: string) => void;
@@ -497,6 +518,7 @@ interface PlanningState {
 export const usePlanningStore = create<PlanningState>((set, get) => ({
   goal: '',
   monthlyIncome: '',
+  monthlyIncomeDay: '1',
   expenses: [createPlanningExpense()],
   metrics: emptyMetrics,
   targetMode: 'duration',
@@ -509,6 +531,11 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
   setMonthlyIncome: (value) => {
     set({ monthlyIncome: value });
     get().recalculate();
+  },
+  setMonthlyIncomeDay: (value) => {
+    const parsed = Number.parseInt(value, 10);
+    const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 31) : 1;
+    set({ monthlyIncomeDay: String(clamped) });
   },
   setTargetMode: (mode) => {
     set({ targetMode: mode });
@@ -551,13 +578,16 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
     const fixedTotal = expenses.reduce((sum, expense) => sum + parseAmount(expense.amount), 0);
     const planMeta = calculatePlanDurationMonths(targetMode, targetDurationMonths, targetDate);
     const planDurationMonths = planMeta.months;
-    const monthlySavingTarget = planDurationMonths > 0 ? goalValue / planDurationMonths : goalValue;
+    const netWorth = useFinanceStore.getState().totals.netWorth;
+    const remainingGoalRaw = goalValue - netWorth;
+    const remainingGoalForPlan = Math.max(remainingGoalRaw, 0);
+    const monthlySavingTarget =
+      remainingGoalForPlan > 0 ? (planDurationMonths > 0 ? remainingGoalForPlan / planDurationMonths : remainingGoalForPlan) : 0;
     const flexibleSpending = incomeValue - fixedTotal - monthlySavingTarget;
     const monthlyShortfall = flexibleSpending < 0 ? Math.abs(flexibleSpending) : 0;
     const effectiveFlexible = Math.max(flexibleSpending, 0);
     const weeklyLimit = effectiveFlexible / AVERAGE_WEEKS_PER_MONTH;
-    const netWorth = useFinanceStore.getState().totals.netWorth;
-    const remainingGoal = goalValue - netWorth;
+    const remainingGoal = remainingGoalRaw;
     const progressRaw = goalValue > 0 ? netWorth / goalValue : 0;
     const progressToGoal = Number.isFinite(progressRaw) ? Math.min(Math.max(progressRaw, 0), 1) : 0;
     const weeklySpend = calculateWeeklySpend(useExpenseStore.getState().entries);
@@ -634,6 +664,7 @@ export interface PersistedFinanceState {
 export interface PersistedPlanningState {
   goal: string;
   monthlyIncome: string;
+  monthlyIncomeDay: string;
   expenses: FixedExpense[];
   targetMode: 'duration' | 'date';
   targetDurationMonths: string;
@@ -710,6 +741,7 @@ export const getPersistedState = (): PersistedState => ({
   planning: {
     goal: usePlanningStore.getState().goal,
     monthlyIncome: usePlanningStore.getState().monthlyIncome,
+    monthlyIncomeDay: usePlanningStore.getState().monthlyIncomeDay,
     expenses: usePlanningStore.getState().expenses,
     targetMode: usePlanningStore.getState().targetMode,
     targetDurationMonths: usePlanningStore.getState().targetDurationMonths,
@@ -730,7 +762,10 @@ export const hydrateFromPersistedState = (persisted: Partial<PersistedState>) =>
   const finance = persisted.finance;
   if (finance) {
     useFinanceStore.setState((state) => ({
-      entries: finance.entries ?? state.entries,
+      entries:
+        finance.entries !== undefined
+          ? finance.entries.map((entry) => applyUnitForType({ ...entry }))
+          : state.entries.map((entry) => applyUnitForType({ ...entry })),
       usdRate: finance.usdRate ?? state.usdRate,
       snapshots:
         finance.snapshots !== undefined
@@ -749,6 +784,7 @@ export const hydrateFromPersistedState = (persisted: Partial<PersistedState>) =>
     usePlanningStore.setState(() => ({
       goal: planning.goal ?? '',
       monthlyIncome: planning.monthlyIncome ?? '',
+      monthlyIncomeDay: planning.monthlyIncomeDay ?? '1',
       expenses:
         planning.expenses && planning.expenses.length > 0
           ? planning.expenses

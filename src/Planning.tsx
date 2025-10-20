@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
 import {
   buildMotivationMessage,
@@ -12,10 +12,12 @@ const Planning = () => {
   const netWorth = useFinanceStore((state) => state.totals.netWorth);
   const goal = usePlanningStore((state) => state.goal);
   const monthlyIncome = usePlanningStore((state) => state.monthlyIncome);
+  const monthlyIncomeDay = usePlanningStore((state) => state.monthlyIncomeDay);
   const expenses = usePlanningStore((state) => state.expenses);
   const metrics = usePlanningStore((state) => state.metrics);
   const setGoal = usePlanningStore((state) => state.setGoal);
   const setMonthlyIncome = usePlanningStore((state) => state.setMonthlyIncome);
+  const setMonthlyIncomeDay = usePlanningStore((state) => state.setMonthlyIncomeDay);
   const targetMode = usePlanningStore((state) => state.targetMode);
   const targetDurationMonths = usePlanningStore((state) => state.targetDurationMonths);
   const targetDate = usePlanningStore((state) => state.targetDate);
@@ -25,6 +27,7 @@ const Planning = () => {
   const addExpense = usePlanningStore((state) => state.addExpense);
   const updateExpense = usePlanningStore((state) => state.updateExpense);
   const removeExpense = usePlanningStore((state) => state.removeExpense);
+  const [expensesCollapsed, setExpensesCollapsed] = useState(false);
 
   const plannedCompletionDate = useMemo(() => {
     if (!metrics.plannedCompletionDate) {
@@ -47,10 +50,11 @@ const Planning = () => {
 
   const motivationMessage = useMemo(() => buildMotivationMessage(metrics.progressToGoal), [metrics.progressToGoal]);
 
-  const planProjection = useMemo(
-    () => buildPlanProjectionSeries(netWorth, metrics.monthlySavingTarget, 3),
-    [netWorth, metrics.monthlySavingTarget]
-  );
+  const planProjection = useMemo(() => {
+    const day = Number.parseInt(monthlyIncomeDay, 10);
+    const incomeDay = Number.isFinite(day) ? day : 1;
+    return buildPlanProjectionSeries(netWorth, metrics.monthlySavingTarget, 3, incomeDay);
+  }, [monthlyIncomeDay, netWorth, metrics.monthlySavingTarget]);
 
   const hasShortfall = !metrics.planFeasible;
   const shortfallPercent = (metrics.shortfallRatio * 100).toFixed(1);
@@ -63,9 +67,9 @@ const Planning = () => {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-12">
       <div className="rounded-[28px] bg-white p-8 shadow-fx-card transition-shadow duration-300 hover:shadow-xl">
         <div className="flex flex-col gap-6">
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="grid gap-6 md:grid-cols-3">
             <label className="flex flex-col gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Hedef Birikim (₺)</span>
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Hedef Net Değer (₺)</span>
               <input
                 type="number"
                 min="0"
@@ -75,6 +79,7 @@ const Planning = () => {
                 value={goal}
                 onChange={(event) => setGoal(event.target.value)}
               />
+              <span className="text-xs text-slate-400">Belirlediğin tarihte ulaşmak istediğin net varlık (varlıklar – borçlar).</span>
             </label>
 
             <label className="flex flex-col gap-2">
@@ -88,6 +93,20 @@ const Planning = () => {
                 value={monthlyIncome}
                 onChange={(event) => setMonthlyIncome(event.target.value)}
               />
+            </label>
+
+            <label className="flex flex-col gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Gelir Günü</span>
+              <input
+                type="number"
+                min="1"
+                max="31"
+                step="1"
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20"
+                value={monthlyIncomeDay}
+                onChange={(event) => setMonthlyIncomeDay(event.target.value)}
+              />
+              <span className="text-xs text-slate-400">Gelirin ayın kaçında yatar? (1-31 arası)</span>
             </label>
           </div>
 
@@ -169,54 +188,65 @@ const Planning = () => {
 
       <div className="rounded-[28px] bg-white p-8 shadow-fx-card transition-shadow duration-300 hover:shadow-xl">
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-slate-800">Sabit Giderler</h3>
               <p className="text-sm text-slate-500">Kategori bazlı giderlerinizi ekleyin.</p>
             </div>
-            <button
-              type="button"
-              onClick={addExpense}
-              className="rounded-full bg-gradient-to-r from-fx-accent-soft to-fx-accent px-4 py-2 text-sm font-semibold text-white shadow-lg transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-fx-accent/30"
-            >
-              + Gider Ekle
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setExpensesCollapsed((previous) => !previous)}
+                className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 transition duration-200 hover:border-fx-accent hover:text-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20"
+              >
+                {expensesCollapsed ? 'Göster' : 'Daralt'}
+              </button>
+              <button
+                type="button"
+                onClick={addExpense}
+                className="rounded-full bg-gradient-to-r from-fx-accent-soft to-fx-accent px-4 py-2 text-sm font-semibold text-white shadow-lg transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-fx-accent/30"
+              >
+                + Gider Ekle
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-col gap-3">
-            {expenses.map((expense) => (
-              <div
-                key={expense.id}
-                className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 transition duration-200 hover:border-fx-accent/50 md:flex-row md:items-center"
-              >
-                <input
-                  type="text"
-                  value={expense.category}
-                  onChange={(event) => updateExpense(expense.id, 'category', event.target.value)}
-                  placeholder="Kategori (örn. Kira)"
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20"
-                />
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  value={expense.amount}
-                  onChange={(event) => updateExpense(expense.id, 'amount', event.target.value)}
-                  placeholder="Tutar"
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20 md:max-w-xs"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeExpense(expense.id)}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-red-100 bg-red-50 text-lg font-semibold text-red-500 transition duration-200 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={expenses.length === 1}
-                  aria-label="Gideri sil"
+          {expensesCollapsed ? null : (
+            <div className="flex flex-col gap-3">
+              {expenses.map((expense) => (
+                <div
+                  key={expense.id}
+                  className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 transition duration-200 hover:border-fx-accent/50 md:flex-row md:items-center"
                 >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
+                  <input
+                    type="text"
+                    value={expense.category}
+                    onChange={(event) => updateExpense(expense.id, 'category', event.target.value)}
+                    placeholder="Kategori (örn. Kira)"
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20"
+                  />
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    value={expense.amount}
+                    onChange={(event) => updateExpense(expense.id, 'amount', event.target.value)}
+                    placeholder="Tutar"
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20 md:max-w-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeExpense(expense.id)}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-red-100 bg-red-50 text-lg font-semibold text-red-500 transition duration-200 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={expenses.length === 1}
+                    aria-label="Gideri sil"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -326,13 +356,15 @@ const Planning = () => {
                   <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 6" vertical={false} />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
                   <YAxis
+                    width={96}
+                    tickMargin={12}
                     tickLine={false}
                     axisLine={false}
                     tick={{ fill: '#64748b', fontSize: 12 }}
-                    tickFormatter={(value) => formatCurrency(value).replace('₺', '')}
+                    tickFormatter={(value) => formatCurrency(value).replace('₺', '₺ ')}
                   />
                   <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value: number) => [formatCurrency(value), 'Net değer']}
                     labelStyle={{ fontWeight: 600 }}
                     contentStyle={{ borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 18px 42px rgba(148,163,184,0.25)' }}
                   />
