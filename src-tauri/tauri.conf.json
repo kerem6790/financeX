@@ -1,16 +1,15 @@
 {
-  "$schema": "https://schema.tauri.app/config/1",
-"build": {
-  "beforeDevCommand": "npm run dev",
-  "beforeBuildCommand": "npm run build",
-  "devPath": "http://localhost:5173",
-  "distDir": "../dist"
-},
-  "package": {
-    "productName": "financeX",
-    "version": "0.1.0"
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.financex.desktop",
+  "productName": "financeX",
+  "version": "0.1.1",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
   },
-  "tauri": {
+  "app": {
     "windows": [
       {
         "title": "financeX",
@@ -19,16 +18,19 @@
         "resizable": true,
         "fullscreen": false
       }
+    ]
+  },
+  "bundle": {
+    "icon": [
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png"
     ],
-    "bundle": {
-      "identifier": "com.financex.app",
-      "icon": [
-        "icons/icon.icns",
-        "icons/icon.ico",
-        "icons/icon.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png"
-      ]
+    "macOS": {
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist"
     }
   }
 }

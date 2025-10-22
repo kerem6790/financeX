@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import {
   getPersistedState,
   hydrateFromPersistedState,
@@ -10,7 +10,8 @@ import {
   useProjectionStore
 } from './store';
 
-const isTauri = typeof window !== 'undefined' && '__TAURI_IPC__' in window;
+const globalWindow = typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>) : undefined;
+const isTauri = Boolean(globalWindow?.__TAURI__ ?? globalWindow?.__TAURI_IPC__ ?? globalWindow?.__TAURI_METADATA__);
 
 let persistenceReady = false;
 let saveScheduled = false;

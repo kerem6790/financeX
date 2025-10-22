@@ -53,9 +53,10 @@ fn save_state(state: String, database: State<AppDatabase>) -> Result<(), String>
 
 fn initialise_database(app: &tauri::AppHandle) -> Result<Connection, String> {
     let app_dir = app
-        .path_resolver()
+        .path()
         .app_data_dir()
-        .ok_or_else(|| "Uygulama veri dizini oluşturulamadı".to_string())?;
+        .map_err(|err| err.to_string())?;
+
     fs::create_dir_all(&app_dir).map_err(|err| err.to_string())?;
 
     let db_path = app_dir.join(DB_FILE_NAME);
