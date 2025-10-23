@@ -1,0 +1,6 @@
+{
+  "identifier": "app-data-access",
+  "description": "Ana pencere için kalıcı veritabanı erişimi.",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:path:default", "app-allow-persistence"]
+}

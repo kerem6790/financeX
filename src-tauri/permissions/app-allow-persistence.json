@@ -1,0 +1,17 @@
+{
+  "default": null,
+  "permission": [
+    {
+      "identifier": "app-allow-persistence",
+      "description": "Kalıcı durum komutlarına erişim",
+      "commands": {
+        "allow": [
+          "load_state",
+          "save_state",
+          "get_storage_info"
+        ],
+        "deny": []
+      }
+    }
+  ]
+}

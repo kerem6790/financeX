@@ -1,8 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::Serialize;
 use std::{fs, sync::Mutex};
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 const DB_FILE_NAME: &str = "financex.db";
 const TABLE_KV: &str = "kv_store";
@@ -24,20 +25,37 @@ impl AppDatabase {
     }
 }
 
+#[derive(Serialize)]
+struct StorageInfo {
+    app_data_dir: String,
+    db_path: String,
+    exists: bool,
+}
+
 #[tauri::command]
 fn load_state(database: State<AppDatabase>) -> Result<Option<String>, String> {
+    println!("[load_state] Veri yükleniyor...");
     database.with_conn(|conn| {
-        conn.query_row(
+        let result = conn.query_row(
             &format!("SELECT value FROM {} WHERE key = ?1", TABLE_KV),
             params![APP_STATE_KEY],
             |row| row.get::<_, String>(0),
         )
-        .optional()
+        .optional();
+        
+        match &result {
+            Ok(Some(_)) => println!("[load_state] Veri bulundu"),
+            Ok(None) => println!("[load_state] Veri bulunamadı"),
+            Err(e) => println!("[load_state] Hata: {:?}", e),
+        }
+        
+        result
     })
 }
 
 #[tauri::command]
 fn save_state(state: String, database: State<AppDatabase>) -> Result<(), String> {
+    println!("[save_state] Veri kaydediliyor...");
     database.with_conn(|conn| {
         conn.execute(
             &format!(
@@ -46,21 +64,26 @@ fn save_state(state: String, database: State<AppDatabase>) -> Result<(), String>
                 TABLE_KV
             ),
             params![APP_STATE_KEY, state],
-        )
-        .map(|_| ())
+        )?;
+        Ok(())
     })
 }
 
 fn initialise_database(app: &tauri::AppHandle) -> Result<Connection, String> {
+    println!("[init] Veritabanı başlatılıyor...");
     let app_dir = app
         .path()
         .app_data_dir()
         .map_err(|err| err.to_string())?;
 
+    println!("[init] App data dizini: {:?}", app_dir);
     fs::create_dir_all(&app_dir).map_err(|err| err.to_string())?;
 
     let db_path = app_dir.join(DB_FILE_NAME);
+    println!("[init] Veritabanı yolu: {:?}", db_path);
     let connection = Connection::open(db_path).map_err(|err| err.to_string())?;
+    
+    println!("[init] Tablo oluşturuluyor...");
     connection
         .execute(
             &format!(
@@ -73,8 +96,25 @@ fn initialise_database(app: &tauri::AppHandle) -> Result<Connection, String> {
             [],
         )
         .map_err(|err| err.to_string())?;
-
+    
+    println!("[init] Veritabanı hazır");
     Ok(connection)
+}
+
+#[tauri::command]
+fn get_storage_info(app_handle: AppHandle) -> Result<StorageInfo, String> {
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|err| err.to_string())?;
+    let db_path = app_dir.join(DB_FILE_NAME);
+    let exists = db_path.exists();
+
+    Ok(StorageInfo {
+        app_data_dir: app_dir.to_string_lossy().into_owned(),
+        db_path: db_path.to_string_lossy().into_owned(),
+        exists,
+    })
 }
 
 fn main() {
@@ -85,7 +125,7 @@ fn main() {
             app.manage(AppDatabase::new(connection));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![load_state, save_state])
+        .invoke_handler(tauri::generate_handler![load_state, save_state, get_storage_info])
         .run(tauri::generate_context!())
         .expect("Tauri uygulaması çalıştırılırken hata oluştu");
 }

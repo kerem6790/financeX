@@ -10,6 +10,11 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "security": {
+      "capabilities": [
+        "app-data-access"
+      ]
+    },
     "windows": [
       {
         "title": "financeX",
