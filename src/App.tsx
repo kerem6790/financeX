@@ -5,6 +5,7 @@ import Expenses from './Expenses';
 import InputPanel from './InputPanel';
 import Planning from './Planning';
 import './App.css';
+import appIconUrl from '../src-tauri/icons/icon.png';
 
 type TabKey = 'inputs' | 'dashboard' | 'expenses' | 'planning' | 'extra-income';
 
@@ -67,7 +68,7 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand__mark">FX</span>
+          <img src={appIconUrl} alt="financeX" className="brand__icon" />
           <span className="brand__name">financeX</span>
         </div>
         <nav className="nav">
