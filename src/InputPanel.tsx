@@ -7,10 +7,12 @@ import {
   parseAmount,
   useFinanceStore,
   type Entry,
+  type CategoryPoint,
   type RowType,
   type Unit
 } from './store';
 import './InputPanel.css';
+import CategoryChart from './CategoryChart';
 
 const GENERAL_ROW_TYPES = ROW_TYPE_OPTIONS.filter((option) => option !== 'Kredi Kartı');
 const UNIT_BADGE_BY_TYPE: Record<RowType, Unit> = {
@@ -27,6 +29,9 @@ const InputPanel = () => {
   const entries = useFinanceStore((state) => state.entries);
   const totals = useFinanceStore((state) => state.totals);
   const usdRate = useFinanceStore((state) => state.usdRate);
+  const categoryHistory = useFinanceStore((state) => state.categoryHistory);
+  const removeCategoryPoint = useFinanceStore((state) => state.removeCategoryPoint);
+  const clearCategoryHistory = useFinanceStore((state) => state.clearCategoryHistory);
   const updateEntry = useFinanceStore((state) => state.updateEntry);
   const addEntry = useFinanceStore((state) => state.addEntry);
   const removeEntry = useFinanceStore((state) => state.removeEntry);
@@ -40,6 +45,7 @@ const InputPanel = () => {
     debts: false,
     crypto: false
   });
+  const [activeChartSection, setActiveChartSection] = useState<SectionKey | null>(null);
 
   const handleRowChange = useCallback(
     <Key extends keyof Omit<Entry, 'id'>>(id: string, key: Key, value: Entry[Key]) => {
@@ -72,6 +78,13 @@ const InputPanel = () => {
 
   const toggleSection = useCallback((section: SectionKey) => {
     setCollapsedSections((previous) => ({ ...previous, [section]: !previous[section] }));
+  }, []);
+  const openChart = useCallback((section: SectionKey) => {
+    setActiveChartSection(section);
+  }, []);
+
+  const closeChart = useCallback(() => {
+    setActiveChartSection(null);
   }, []);
 
   const numericUsdRate = parseAmount(usdRate);
@@ -132,6 +145,29 @@ const InputPanel = () => {
   const isCardsCollapsed = collapsedSections.cards;
   const isDebtsCollapsed = collapsedSections.debts;
   const isCryptoCollapsed = collapsedSections.crypto;
+  const activeChartHistory = activeChartSection ? categoryHistory[activeChartSection] : [];
+  const CHART_META: Record<SectionKey, { label: string; color: string; description: string }> = {
+    assets: {
+      label: 'Varlıklar & Alacaklar',
+      color: '#0ea5e9',
+      description: 'Nakit ve alacak kalemlerinizin TL karşılığı bu grafikte takip edilir.'
+    },
+    cards: {
+      label: 'Kredi Kartları',
+      color: '#f97316',
+      description: 'Kredi kartı borçlarınız (limit - kullanılabilir tutar) otomatik izlenir.'
+    },
+    debts: {
+      label: 'Diğer Borçlar',
+      color: '#e11d48',
+      description: 'Kart dışındaki borç kalemlerinin toplamı.'
+    },
+    crypto: {
+      label: 'Kripto Varlıklar',
+      color: '#10b981',
+      description: 'Kripto varlıklarınızın TL karşılığı (girilen USD kuru üzerinden) kayıt altına alınır.'
+    }
+  };
 
   const renderGeneralEntry = useCallback(
     (entry: Entry, colSpan: number, amountLabel: string, amountPlaceholder: string) => {
@@ -316,15 +352,19 @@ const InputPanel = () => {
   const creditCardColSpan = 4;
 
   return (
-    <div className="input-panel-card">
-      <div className="finance-grid">
-        <section className={`finance-table-card${isAssetsCollapsed ? ' finance-table-card--collapsed' : ''}`}>
+    <>
+      <div className="input-panel-card">
+        <div className="finance-grid">
+          <section className={`finance-table-card${isAssetsCollapsed ? ' finance-table-card--collapsed' : ''}`}>
           <div className="finance-table-card__header">
             <div className="finance-table-card__title-group">
               <span className="finance-table-card__title">Varlıklar &amp; Alacaklar</span>
               <span className="finance-table-card__count">{assetsAndReceivables.length} satır</span>
             </div>
             <div className="finance-table-card__controls">
+              <button type="button" className="finance-table__chart" onClick={() => openChart('assets')}>
+                Grafiği Aç
+              </button>
               <button
                 type="button"
                 className="finance-table__toggle"
@@ -367,6 +407,9 @@ const InputPanel = () => {
               <span className="finance-table-card__count">{creditCards.length} satır</span>
             </div>
             <div className="finance-table-card__controls">
+              <button type="button" className="finance-table__chart" onClick={() => openChart('cards')}>
+                Grafiği Aç
+              </button>
               <button
                 type="button"
                 className="finance-table__toggle"
@@ -409,6 +452,9 @@ const InputPanel = () => {
               <span className="finance-table-card__count">{debts.length} satır</span>
             </div>
             <div className="finance-table-card__controls">
+              <button type="button" className="finance-table__chart" onClick={() => openChart('debts')}>
+                Grafiği Aç
+              </button>
               <button
                 type="button"
                 className="finance-table__toggle"
@@ -451,6 +497,9 @@ const InputPanel = () => {
               <span className="finance-table-card__count">{cryptos.length} satır</span>
             </div>
             <div className="finance-table-card__controls">
+              <button type="button" className="finance-table__chart" onClick={() => openChart('crypto')}>
+                Grafiği Aç
+              </button>
               <button
                 type="button"
                 className="finance-table__toggle"
@@ -530,8 +579,92 @@ const InputPanel = () => {
           </div>
         </div>
       </div>
-    </div>
+      {activeChartSection ? (
+        <div className="chart-overlay" role="dialog" aria-modal="true">
+          <div className="chart-overlay__backdrop" onClick={closeChart} aria-hidden="true" />
+          <div className="chart-overlay__panel">
+            <header className="chart-overlay__header">
+              <div>
+                <h2>{CHART_META[activeChartSection].label}</h2>
+                <p>{CHART_META[activeChartSection].description}</p>
+              </div>
+              <button type="button" className="chart-overlay__close" onClick={closeChart} aria-label="Grafiği kapat">
+                ×
+              </button>
+            </header>
+            <div className="chart-overlay__body">
+              <CategoryChart
+                history={activeChartHistory}
+                color={CHART_META[activeChartSection].color}
+                label={CHART_META[activeChartSection].label}
+              />
+              <CategoryHistoryList
+                history={activeChartHistory}
+                onRemove={(id) => removeCategoryPoint(activeChartSection, id)}
+                onClear={() => clearCategoryHistory(activeChartSection)}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+      </div>
+    </>
   );
 };
 
 export default InputPanel;
+
+const HISTORY_DATE_FORMATTER = new Intl.DateTimeFormat('tr-TR', {
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit'
+});
+
+interface CategoryHistoryListProps {
+  history: CategoryPoint[];
+  onRemove: (pointId: string) => void;
+  onClear: () => void;
+}
+
+const CategoryHistoryList = ({ history, onRemove, onClear }: CategoryHistoryListProps) => {
+  const latestItems = history.slice(-50).reverse();
+
+  return (
+    <div className="chart-overlay__history">
+      <div className="chart-overlay__history-header">
+        <span>Hoşunuza gitmeyen kayıtları silebilirsiniz.</span>
+        {history.length > 0 ? (
+          <button type="button" className="chart-overlay__clear" onClick={onClear}>
+            Hepsini sil
+          </button>
+        ) : null}
+      </div>
+      {history.length === 0 ? (
+        <p className="chart-overlay__history-empty">
+          Henüz kayıt alınmadı. Tabloya veri ekleyerek grafiği oluşturun.
+        </p>
+      ) : (
+        <ul>
+          {latestItems.map((point) => (
+            <li key={point.id} className="chart-overlay__history-item">
+              <div className="chart-overlay__history-meta">
+                <span className="chart-overlay__history-value">{formatCurrency(point.value)}</span>
+                <span className="chart-overlay__history-date">
+                  {HISTORY_DATE_FORMATTER.format(new Date(point.capturedAt))}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="chart-overlay__history-delete"
+                onClick={() => onRemove(point.id)}
+              >
+                Sil
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};

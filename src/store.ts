@@ -42,6 +42,24 @@ export interface FixedExpense {
   amount: string;
 }
 
+export const CATEGORY_KEYS = ['cards', 'debts', 'crypto', 'assets'] as const;
+export type CategoryKey = (typeof CATEGORY_KEYS)[number];
+
+export interface CategoryPoint {
+  id: string;
+  capturedAt: string;
+  value: number;
+}
+
+export type CategoryHistory = Record<CategoryKey, CategoryPoint[]>;
+
+export interface CategoryTotals {
+  cards: number;
+  debts: number;
+  crypto: number;
+  assets: number;
+}
+
 export interface PlanningMetrics {
   goalValue: number;
   incomeValue: number;
@@ -113,6 +131,46 @@ const createSpendingEntry = (payload: Omit<SpendingEntry, 'id' | 'createdAt'>): 
   id: generateId(),
   createdAt: Date.now(),
   ...payload
+});
+
+const MAX_CATEGORY_HISTORY = 200;
+
+const createEmptyCategoryHistory = (): CategoryHistory => ({
+  cards: [],
+  debts: [],
+  crypto: [],
+  assets: []
+});
+
+const normaliseCategoryPoint = (point: Partial<CategoryPoint>): CategoryPoint => {
+  const parsedDate = point.capturedAt ? new Date(point.capturedAt) : new Date();
+  const capturedAt = Number.isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
+
+  return {
+    id: point.id ?? generateId(),
+    capturedAt,
+    value: Number.isFinite(point.value) ? Number(point.value) : 0
+  };
+};
+
+const normaliseCategoryHistory = (
+  history?: Partial<Record<CategoryKey, Partial<CategoryPoint>[]>>
+): CategoryHistory => {
+  const result = createEmptyCategoryHistory();
+
+  CATEGORY_KEYS.forEach((key) => {
+    const list = history?.[key] ?? [];
+    result[key] = list.map((item) => normaliseCategoryPoint(item)).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
+  });
+
+  return result;
+};
+
+const normaliseCategoryTotals = (totals?: Partial<CategoryTotals>): CategoryTotals => ({
+  cards: Number.isFinite(totals?.cards) ? Number(totals?.cards) : 0,
+  debts: Number.isFinite(totals?.debts) ? Number(totals?.debts) : 0,
+  crypto: Number.isFinite(totals?.crypto) ? Number(totals?.crypto) : 0,
+  assets: Number.isFinite(totals?.assets) ? Number(totals?.assets) : 0
 });
 
 export type ExtraIncomeType = 'Gerçekleşen' | 'Tahmini';
@@ -314,6 +372,8 @@ interface FinanceState {
   totals: Totals;
   usdRate: string;
   snapshots: NetWorthSnapshot[];
+  categoryTotals: CategoryTotals;
+  categoryHistory: CategoryHistory;
   updateEntry: <Key extends keyof Omit<Entry, 'id'>>(id: string, key: Key, value: Entry[Key]) => void;
   addEntry: (overrides?: Partial<Entry>) => void;
   removeEntry: (id: string) => void;
@@ -324,6 +384,8 @@ interface FinanceState {
   setSnapshots: (snapshots: Partial<NetWorthSnapshot>[]) => void;
   removeSnapshot: (id: string) => void;
   restoreSnapshot: (snapshot: NetWorthSnapshot) => void;
+  removeCategoryPoint: (category: CategoryKey, pointId: string) => void;
+  clearCategoryHistory: (category: CategoryKey) => void;
 }
 
 export const useFinanceStore = create<FinanceState>((set, get) => ({
@@ -331,6 +393,8 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   totals: { debt: 0, assets: 0, netWorth: 0 },
   usdRate: '',
   snapshots: [],
+  categoryTotals: { cards: 0, debts: 0, crypto: 0, assets: 0 },
+  categoryHistory: createEmptyCategoryHistory(),
   updateEntry: (id, key, value) => {
     set((state) => ({
       entries: state.entries.map((entry) => {
@@ -384,6 +448,10 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
 
     let debt = 0;
     let assets = 0;
+    let cardDebt = 0;
+    let otherDebt = 0;
+    let cryptoAssets = 0;
+    let assetAndReceivables = 0;
 
     entries.forEach((entry) => {
       const amount = parseAmount(entry.amount);
@@ -391,20 +459,62 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
       const creditCard = getCreditCardMeta(entry, amountInTl);
 
       if (entry.type === 'Kredi Kartı') {
-        debt += creditCard ? creditCard.debt : 0;
+        const value = creditCard ? creditCard.debt : 0;
+        debt += value;
+        cardDebt += value;
       } else if (entry.type === 'Borç') {
-        debt += creditCard ? creditCard.debt : amountInTl;
+        const value = creditCard ? creditCard.debt : amountInTl;
+        debt += value;
+        otherDebt += value;
       } else if (entry.type === 'Alacak' || entry.type === 'Nakit' || entry.type === 'Kripto') {
         assets += amountInTl;
+        if (entry.type === 'Kripto') {
+          cryptoAssets += amountInTl;
+        } else {
+          assetAndReceivables += amountInTl;
+        }
       }
     });
 
-    set({
-      totals: {
-        debt,
-        assets,
-        netWorth: assets - debt
-      }
+    const categoryTotals: CategoryTotals = {
+      cards: cardDebt,
+      debts: otherDebt,
+      crypto: cryptoAssets,
+      assets: assetAndReceivables
+    };
+
+    const nowIso = new Date().toISOString();
+
+    set((state) => {
+      const nextHistory: CategoryHistory = {
+        cards: state.categoryHistory.cards.slice(),
+        debts: state.categoryHistory.debts.slice(),
+        crypto: state.categoryHistory.crypto.slice(),
+        assets: state.categoryHistory.assets.slice()
+      };
+
+      const appendPoint = (key: CategoryKey, value: number) => {
+        const history = nextHistory[key];
+        const lastPoint = history[history.length - 1];
+        if (lastPoint && lastPoint.value === value) {
+          return;
+        }
+
+        const updated = [...history, { id: generateId(), capturedAt: nowIso, value }];
+        nextHistory[key] = updated.length > MAX_CATEGORY_HISTORY ? updated.slice(updated.length - MAX_CATEGORY_HISTORY) : updated;
+      };
+
+      (Object.entries(categoryTotals) as [CategoryKey, number][]).forEach(([key, value]) => appendPoint(key, value));
+
+      return {
+        totals: {
+          debt,
+          assets,
+          netWorth: assets - debt
+        },
+        categoryTotals,
+        categoryHistory: nextHistory
+      };
     });
 
     triggerPlanningRecalculate();
@@ -435,6 +545,22 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
       snapshots: [...state.snapshots.filter((item) => item.id !== restored.id), restored].sort((a, b) =>
         a.capturedAt.localeCompare(b.capturedAt)
       )
+    }));
+  },
+  removeCategoryPoint: (category, pointId) => {
+    set((state) => ({
+      categoryHistory: {
+        ...state.categoryHistory,
+        [category]: state.categoryHistory[category].filter((point) => point.id !== pointId)
+      }
+    }));
+  },
+  clearCategoryHistory: (category) => {
+    set((state) => ({
+      categoryHistory: {
+        ...state.categoryHistory,
+        [category]: []
+      }
     }));
   }
 }));
@@ -659,6 +785,8 @@ export interface PersistedFinanceState {
   entries: Entry[];
   usdRate: string;
   snapshots: NetWorthSnapshot[];
+  categoryTotals?: CategoryTotals;
+  categoryHistory?: Partial<Record<CategoryKey, Partial<CategoryPoint>[]>>;
 }
 
 export interface PersistedPlanningState {
@@ -736,7 +864,9 @@ export const getPersistedState = (): PersistedState => ({
   finance: {
     entries: useFinanceStore.getState().entries,
     usdRate: useFinanceStore.getState().usdRate,
-    snapshots: useFinanceStore.getState().snapshots
+    snapshots: useFinanceStore.getState().snapshots,
+    categoryTotals: useFinanceStore.getState().categoryTotals,
+    categoryHistory: useFinanceStore.getState().categoryHistory
   },
   planning: {
     goal: usePlanningStore.getState().goal,
@@ -761,17 +891,31 @@ export const getPersistedState = (): PersistedState => ({
 export const hydrateFromPersistedState = (persisted: Partial<PersistedState>) => {
   const finance = persisted.finance;
   if (finance) {
-    useFinanceStore.setState((state) => ({
-      entries:
+    useFinanceStore.setState((state) => {
+      const nextEntries =
         finance.entries !== undefined
           ? finance.entries.map((entry) => applyUnitForType({ ...entry }))
-          : state.entries.map((entry) => applyUnitForType({ ...entry })),
-      usdRate: finance.usdRate ?? state.usdRate,
-      snapshots:
+          : state.entries.map((entry) => applyUnitForType({ ...entry }));
+
+      const nextSnapshots =
         finance.snapshots !== undefined
           ? finance.snapshots.map(normaliseSnapshot).sort((a, b) => a.capturedAt.localeCompare(b.capturedAt))
-          : state.snapshots
-    }));
+          : state.snapshots;
+
+      const nextCategoryHistory =
+        finance.categoryHistory !== undefined ? normaliseCategoryHistory(finance.categoryHistory) : state.categoryHistory;
+
+      const nextCategoryTotals =
+        finance.categoryTotals !== undefined ? normaliseCategoryTotals(finance.categoryTotals) : state.categoryTotals;
+
+      return {
+        entries: nextEntries,
+        usdRate: finance.usdRate ?? state.usdRate,
+        snapshots: nextSnapshots,
+        categoryHistory: nextCategoryHistory,
+        categoryTotals: nextCategoryTotals
+      };
+    });
   }
 
   const expenses = persisted.expenses;
