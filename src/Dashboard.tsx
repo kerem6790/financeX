@@ -3,10 +3,14 @@ import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 import {
   buildNetWorthTrend,
   buildSuggestion,
+  buildPaydayPlanSeries,
+  buildExpenseActualSeries,
+  buildPlanVsActualData,
   formatCurrencyLabel
 } from './analytics';
 import {
   formatCurrency,
+  parseAmount,
   useExpenseStore,
   useFinanceStore,
   usePlanningStore,
@@ -26,7 +30,10 @@ const Dashboard = () => {
   const captureSnapshot = useFinanceStore((state) => state.captureSnapshot);
   const removeSnapshot = useFinanceStore((state) => state.removeSnapshot);
   const restoreSnapshot = useFinanceStore((state) => state.restoreSnapshot);
+  const planHistory = useFinanceStore((state) => state.planHistory);
   const planningMetrics = usePlanningStore((state) => state.metrics);
+  const monthlyIncome = usePlanningStore((state) => state.monthlyIncome);
+  const monthlyIncomeDay = usePlanningStore((state) => state.monthlyIncomeDay);
   const currentGoal = usePlanningStore((state) => state.goal);
   const expenses = useExpenseStore((state) => state.entries);
 
@@ -88,6 +95,150 @@ const Dashboard = () => {
   };
 
   const suggestion = useMemo(() => buildSuggestion(expenses), [expenses]);
+
+  const plannedCompletionDate = useMemo(() => {
+    if (!planningMetrics.plannedCompletionDate) {
+      return null;
+    }
+    const parsed = new Date(planningMetrics.plannedCompletionDate);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, [planningMetrics.plannedCompletionDate]);
+
+  const planMonthsAhead = useMemo(() => {
+    const durationMonths = Number.isFinite(planningMetrics.planDurationMonths)
+      ? Math.ceil(planningMetrics.planDurationMonths)
+      : 0;
+
+    let monthsFromDate = 0;
+    if (plannedCompletionDate) {
+      const now = new Date();
+      const diffMs = plannedCompletionDate.getTime() - now.getTime();
+      if (diffMs > 0) {
+        monthsFromDate = Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 30.4375));
+      }
+    }
+
+    const value = Math.max(durationMonths, monthsFromDate);
+    if (!Number.isFinite(value) || value <= 0) {
+      return 3;
+    }
+
+    return Math.min(120, value);
+  }, [planningMetrics.planDurationMonths, plannedCompletionDate]);
+
+  const monthlyIncomeValue = useMemo(() => parseAmount(monthlyIncome), [monthlyIncome]);
+
+  const plannedMonthlySpend = useMemo(() => {
+    const spend = monthlyIncomeValue - planningMetrics.monthlySavingTarget;
+    return spend > 0 ? spend : 0;
+  }, [monthlyIncomeValue, planningMetrics.monthlySavingTarget]);
+
+  const planSeries = useMemo(() => {
+    if (planMonthsAhead <= 0) {
+      return [];
+    }
+    const day = Number.parseInt(monthlyIncomeDay, 10);
+    const incomeDay = Number.isFinite(day) ? day : 1;
+    return buildPaydayPlanSeries(
+      totals.netWorth,
+      monthlyIncomeValue,
+      plannedMonthlySpend,
+      planMonthsAhead,
+      incomeDay,
+      plannedCompletionDate
+    );
+  }, [monthlyIncomeDay, totals.netWorth, monthlyIncomeValue, plannedMonthlySpend, planMonthsAhead, plannedCompletionDate]);
+
+  const actualPointsFromEntries = useMemo(() => {
+    const points = planHistory
+      .map((point) => ({ date: new Date(point.capturedAt), value: point.value }))
+      .filter((point) => !Number.isNaN(point.date.getTime()));
+
+    if (points.length === 0) {
+      points.push({ date: new Date(), value: totals.netWorth });
+    }
+
+    return points;
+  }, [planHistory, totals.netWorth]);
+
+  const planVsActualDataInputs = useMemo(() => {
+    if (planSeries.length === 0) {
+      return [];
+    }
+    return buildPlanVsActualData(planSeries, actualPointsFromEntries, totals.netWorth);
+  }, [planSeries, actualPointsFromEntries, totals.netWorth]);
+
+  const inputComparisonSummary = useMemo(() => {
+    if (planSeries.length === 0 || actualPointsFromEntries.length === 0) {
+      return null;
+    }
+    const latestActualPoint = actualPointsFromEntries[actualPointsFromEntries.length - 1];
+    const planPoint = planSeries.find((point) => point.date >= latestActualPoint.date) ?? planSeries[planSeries.length - 1];
+    const diff = latestActualPoint.value - planPoint.baseline;
+    const status = Math.abs(diff) < 1
+      ? 'Planla aynı tempodasın.'
+      : diff > 0
+        ? 'Planın ilerisindesin.'
+        : 'Planın gerisindesin.';
+    return {
+      status,
+      diff,
+      diffLabel: formatCurrency(Math.abs(diff)),
+      ahead: diff >= 0,
+      actual: latestActualPoint.value,
+      plan: planPoint.baseline
+    };
+  }, [planSeries, actualPointsFromEntries]);
+
+  const expenseActualSeries = useMemo(() => {
+    if (planSeries.length === 0) {
+      return [];
+    }
+    const day = Number.parseInt(monthlyIncomeDay, 10);
+    const incomeDay = Number.isFinite(day) ? day : 1;
+    return buildExpenseActualSeries(
+      totals.netWorth,
+      monthlyIncomeValue,
+      expenses,
+      planMonthsAhead,
+      incomeDay,
+      plannedCompletionDate
+    );
+  }, [monthlyIncomeDay, totals.netWorth, monthlyIncomeValue, expenses, planMonthsAhead, plannedCompletionDate, planSeries.length]);
+
+  const expenseActualPoints = useMemo(
+    () => expenseActualSeries.map((point) => ({ date: point.date, value: point.baseline })),
+    [expenseActualSeries]
+  );
+
+  const planVsActualDataExpenses = useMemo(() => {
+    if (planSeries.length === 0) {
+      return [];
+    }
+    return buildPlanVsActualData(planSeries, expenseActualPoints, totals.netWorth);
+  }, [planSeries, expenseActualPoints, totals.netWorth]);
+
+  const expenseComparisonSummary = useMemo(() => {
+    if (planSeries.length === 0 || expenseActualPoints.length === 0) {
+      return null;
+    }
+    const latestExpensePoint = expenseActualPoints[expenseActualPoints.length - 1];
+    const planPoint = planSeries.find((point) => point.date >= latestExpensePoint.date) ?? planSeries[planSeries.length - 1];
+    const diff = latestExpensePoint.value - planPoint.baseline;
+    const status = Math.abs(diff) < 1
+      ? 'Harcamalar plana paralel ilerliyor.'
+      : diff > 0
+        ? 'Harcamalar hedefe göre daha kontrollü.'
+        : 'Harcamalar hedefin üzerinde.';
+    return {
+      status,
+      diff,
+      diffLabel: formatCurrency(Math.abs(diff)),
+      ahead: diff >= 0,
+      actual: latestExpensePoint.value,
+      plan: planPoint.baseline
+    };
+  }, [planSeries, expenseActualPoints]);
 
   const progress = Number.isFinite(planningMetrics.progressToGoal)
     ? Math.min(Math.max(planningMetrics.progressToGoal, 0), 1)
@@ -271,6 +422,109 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-[28px] bg-white p-8 shadow-fx-card">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-800">Plan vs Mevcut (Girdiler)</h3>
+              <p className="text-sm text-slate-500">Girdi tablosundaki net worth güncellemeleri ile planlanan tempo karşılaştırması.</p>
+            </div>
+            <div className="flex gap-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <span className="flex items-center gap-1"><span className="h-2 w-6 rounded-full bg-sky-500" /> Plan</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-6 rounded-full bg-rose-500" /> Mevcut</span>
+            </div>
+          </div>
+          <div className="mt-6 h-60 w-full">
+            {planVsActualDataInputs.length < 2 ? (
+              <div className="grid h-full place-items-center text-sm text-slate-500">
+                Girdi tablosuna düzenli kayıt ekledikçe karşılaştırma grafiği oluşacak.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={planVsActualDataInputs} margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 6" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                  <YAxis
+                    width={96}
+                    tickMargin={12}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: '#64748b', fontSize: 12 }}
+                    tickFormatter={(value) => formatCurrency(value).replace('₺', '₺ ')}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [formatCurrency(value), name === 'plan' ? 'Planlanan' : 'Mevcut']}
+                    labelStyle={{ fontWeight: 600 }}
+                    contentStyle={{ borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 18px 42px rgba(148,163,184,0.25)' }}
+                  />
+                  <Line type="monotone" dataKey="plan" stroke="#2563eb" strokeWidth={3} dot={false} />
+                  <Line type="monotone" dataKey="actual" stroke="#f43f5e" strokeWidth={2.5} dot={{ r: 3, strokeWidth: 0 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+          {inputComparisonSummary ? (
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-semibold text-slate-800">{inputComparisonSummary.status}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Plan: <span className="font-semibold text-slate-700">{formatCurrency(inputComparisonSummary.plan)}</span> · Mevcut: <span className="font-semibold text-slate-700">{formatCurrency(inputComparisonSummary.actual)}</span> → Fark: <span className={inputComparisonSummary.ahead ? 'font-semibold text-emerald-600' : 'font-semibold text-rose-600'}>{inputComparisonSummary.diff >= 0 ? '+' : '-'}{inputComparisonSummary.diffLabel}</span>
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-[28px] bg-white p-8 shadow-fx-card">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-800">Plan vs Harcama (Harcamalar Sekmesi)</h3>
+              <p className="text-sm text-slate-500">Harcama kayıtları kullanılarak planlanan net worth temposu ile kıyaslama.</p>
+            </div>
+            <div className="flex gap-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <span className="flex items-center gap-1"><span className="h-2 w-6 rounded-full bg-sky-500" /> Plan</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-6 rounded-full bg-fuchsia-500" /> Harcama</span>
+            </div>
+          </div>
+          <div className="mt-6 h-60 w-full">
+            {planVsActualDataExpenses.length < 2 ? (
+              <div className="grid h-full place-items-center text-sm text-slate-500">
+                Harcamalar sekmesine tarihli kayıtlar eklediğinizde grafik oluşacak.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={planVsActualDataExpenses} margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 6" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                  <YAxis
+                    width={96}
+                    tickMargin={12}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: '#64748b', fontSize: 12 }}
+                    tickFormatter={(value) => formatCurrency(value).replace('₺', '₺ ')}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [formatCurrency(value), name === 'plan' ? 'Planlanan' : 'Harcamalara göre']}
+                    labelStyle={{ fontWeight: 600 }}
+                    contentStyle={{ borderRadius: 16, border: '1px solid #e2e8f0', boxShadow: '0 18px 42px rgba(148,163,184,0.25)' }}
+                  />
+                  <Line type="monotone" dataKey="plan" stroke="#2563eb" strokeWidth={3} dot={false} />
+                  <Line type="monotone" dataKey="actual" stroke="#a855f7" strokeWidth={2.5} dot={{ r: 3, strokeWidth: 0 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+          {expenseComparisonSummary ? (
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+              <p className="font-semibold text-slate-800">{expenseComparisonSummary.status}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Plan: <span className="font-semibold text-slate-700">{formatCurrency(expenseComparisonSummary.plan)}</span> · Harcama Bazlı: <span className="font-semibold text-slate-700">{formatCurrency(expenseComparisonSummary.actual)}</span> → Fark: <span className={expenseComparisonSummary.ahead ? 'font-semibold text-emerald-600' : 'font-semibold text-rose-600'}>{expenseComparisonSummary.diff >= 0 ? '+' : '-'}{expenseComparisonSummary.diffLabel}</span>
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
     </div>
       {undoSnapshot ? (
         <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-4 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm text-slate-600 shadow-xl">

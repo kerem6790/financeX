@@ -60,6 +60,12 @@ export interface CategoryTotals {
   assets: number;
 }
 
+export interface PlanHistoryPoint {
+  id: string;
+  capturedAt: string;
+  value: number;
+}
+
 export interface PlanningMetrics {
   goalValue: number;
   incomeValue: number;
@@ -134,6 +140,7 @@ const createSpendingEntry = (payload: Omit<SpendingEntry, 'id' | 'createdAt'>): 
 });
 
 const MAX_CATEGORY_HISTORY = 200;
+const MAX_PLAN_HISTORY = 400;
 
 const createEmptyCategoryHistory = (): CategoryHistory => ({
   cards: [],
@@ -172,6 +179,19 @@ const normaliseCategoryTotals = (totals?: Partial<CategoryTotals>): CategoryTota
   crypto: Number.isFinite(totals?.crypto) ? Number(totals?.crypto) : 0,
   assets: Number.isFinite(totals?.assets) ? Number(totals?.assets) : 0
 });
+
+const normalisePlanHistory = (history?: Partial<PlanHistoryPoint>[]): PlanHistoryPoint[] =>
+  (history ?? [])
+    .map((point) => {
+      const parsedDate = point.capturedAt ? new Date(point.capturedAt) : new Date();
+      const capturedAt = Number.isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
+      return {
+        id: point.id ?? generateId(),
+        capturedAt,
+        value: Number.isFinite(point.value) ? Number(point.value) : 0
+      };
+    })
+    .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt));
 
 export type ExtraIncomeType = 'Gerçekleşen' | 'Tahmini';
 
@@ -374,6 +394,7 @@ interface FinanceState {
   snapshots: NetWorthSnapshot[];
   categoryTotals: CategoryTotals;
   categoryHistory: CategoryHistory;
+  planHistory: PlanHistoryPoint[];
   updateEntry: <Key extends keyof Omit<Entry, 'id'>>(id: string, key: Key, value: Entry[Key]) => void;
   addEntry: (overrides?: Partial<Entry>) => void;
   removeEntry: (id: string) => void;
@@ -395,6 +416,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   snapshots: [],
   categoryTotals: { cards: 0, debts: 0, crypto: 0, assets: 0 },
   categoryHistory: createEmptyCategoryHistory(),
+  planHistory: [],
   updateEntry: (id, key, value) => {
     set((state) => ({
       entries: state.entries.map((entry) => {
@@ -493,6 +515,22 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
         assets: state.categoryHistory.assets.slice()
       };
 
+      const nextPlanHistory = state.planHistory.slice();
+      const currentNetWorth = assets - debt;
+      const lastPlanPoint = nextPlanHistory[nextPlanHistory.length - 1];
+
+      if (!lastPlanPoint || Math.abs(lastPlanPoint.value - currentNetWorth) >= 0.01) {
+        const point: PlanHistoryPoint = {
+          id: generateId(),
+          capturedAt: nowIso,
+          value: Number(currentNetWorth.toFixed(2))
+        };
+        nextPlanHistory.push(point);
+        if (nextPlanHistory.length > MAX_PLAN_HISTORY) {
+          nextPlanHistory.shift();
+        }
+      }
+
       const appendPoint = (key: CategoryKey, value: number) => {
         const history = nextHistory[key];
         const lastPoint = history[history.length - 1];
@@ -513,7 +551,8 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
           netWorth: assets - debt
         },
         categoryTotals,
-        categoryHistory: nextHistory
+        categoryHistory: nextHistory,
+        planHistory: nextPlanHistory
       };
     });
 
@@ -787,6 +826,7 @@ export interface PersistedFinanceState {
   snapshots: NetWorthSnapshot[];
   categoryTotals?: CategoryTotals;
   categoryHistory?: Partial<Record<CategoryKey, Partial<CategoryPoint>[]>>;
+  planHistory?: Partial<PlanHistoryPoint>[];
 }
 
 export interface PersistedPlanningState {
@@ -866,7 +906,8 @@ export const getPersistedState = (): PersistedState => ({
     usdRate: useFinanceStore.getState().usdRate,
     snapshots: useFinanceStore.getState().snapshots,
     categoryTotals: useFinanceStore.getState().categoryTotals,
-    categoryHistory: useFinanceStore.getState().categoryHistory
+    categoryHistory: useFinanceStore.getState().categoryHistory,
+    planHistory: useFinanceStore.getState().planHistory
   },
   planning: {
     goal: usePlanningStore.getState().goal,
@@ -908,12 +949,16 @@ export const hydrateFromPersistedState = (persisted: Partial<PersistedState>) =>
       const nextCategoryTotals =
         finance.categoryTotals !== undefined ? normaliseCategoryTotals(finance.categoryTotals) : state.categoryTotals;
 
+      const nextPlanHistory =
+        finance.planHistory !== undefined ? normalisePlanHistory(finance.planHistory) : state.planHistory;
+
       return {
         entries: nextEntries,
         usdRate: finance.usdRate ?? state.usdRate,
         snapshots: nextSnapshots,
         categoryHistory: nextCategoryHistory,
-        categoryTotals: nextCategoryTotals
+        categoryTotals: nextCategoryTotals,
+        planHistory: nextPlanHistory
       };
     });
   }

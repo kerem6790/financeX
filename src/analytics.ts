@@ -298,6 +298,143 @@ export const buildPaydayPlanSeries = (
   return points;
 };
 
+export const buildExpenseActualSeries = (
+  currentNetWorth: number,
+  monthlyIncome: number,
+  expenses: SpendingEntry[],
+  monthsAhead: number,
+  incomeDay: number,
+  plannedCompletion?: Date | null
+): NetWorthProjectionPoint[] => {
+  const base = clampNumber(currentNetWorth);
+  const incomeValue = Math.max(0, clampNumber(monthlyIncome));
+  const incomeDaySafe = Number.isFinite(incomeDay) && incomeDay >= 1 && incomeDay <= 31 ? Math.floor(incomeDay) : 1;
+
+  const start = startOfDay(new Date());
+  const monthsPositive = Math.max(1, Number.isFinite(monthsAhead) ? Math.ceil(monthsAhead) : 1);
+  let endDate = plannedCompletion ? startOfDay(plannedCompletion) : addMonths(start, monthsPositive);
+  if (endDate <= start) {
+    endDate = addMonths(start, monthsPositive);
+  }
+
+  const sortedExpenses = expenses
+    .map((entry) => ({
+      date: startOfDay(new Date(entry.date)),
+      amount: clampNumber(parseAmount(entry.amount))
+    }))
+    .filter((item) => !Number.isNaN(item.date.getTime()) && item.amount > 0)
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  let expenseIndex = 0;
+  let currentNet = base;
+  let cycleStart = start;
+  let cycleIndex = 1;
+  const maxCycles = Math.min(240, monthsPositive + 6);
+
+  const points: NetWorthProjectionPoint[] = [
+    {
+      label: payDayFormatter.format(start),
+      date: start,
+      baseline: Number(base.toFixed(2))
+    }
+  ];
+
+  while (cycleStart < endDate && cycleIndex <= maxCycles) {
+    const nextPayDay = startOfDay(resolveIncomeDate(start, incomeDaySafe, cycleIndex));
+    const cycleEnd = nextPayDay < endDate ? nextPayDay : endDate;
+
+    let cycleExpense = 0;
+    while (expenseIndex < sortedExpenses.length) {
+      const expense = sortedExpenses[expenseIndex];
+      if (expense.date < cycleStart) {
+        expenseIndex += 1;
+        continue;
+      }
+      if (expense.date > cycleEnd || (cycleEnd !== endDate && expense.date >= cycleEnd)) {
+        break;
+      }
+      cycleExpense += expense.amount;
+      expenseIndex += 1;
+    }
+
+    if (cycleExpense > 0) {
+      const spendSnapshotDate =
+        cycleEnd === nextPayDay ? new Date(nextPayDay.getTime() - DAY_MS) : new Date(cycleEnd.getTime());
+      if (spendSnapshotDate >= cycleStart) {
+        currentNet -= cycleExpense;
+        points.push({
+          label: payDayFormatter.format(spendSnapshotDate),
+          date: spendSnapshotDate,
+          baseline: Number(currentNet.toFixed(2))
+        });
+      } else {
+        currentNet -= cycleExpense;
+      }
+    }
+
+    if (cycleEnd === nextPayDay) {
+      currentNet += incomeValue;
+      points.push({
+        label: payDayFormatter.format(nextPayDay),
+        date: nextPayDay,
+        baseline: Number(currentNet.toFixed(2))
+      });
+    } else {
+      if (cycleEnd > cycleStart) {
+        points.push({
+          label: payDayFormatter.format(cycleEnd),
+          date: cycleEnd,
+          baseline: Number(currentNet.toFixed(2))
+        });
+      }
+      break;
+    }
+
+    cycleStart = nextPayDay;
+    cycleIndex += 1;
+  }
+
+  return points;
+};
+
+export interface ActualHistoryPoint {
+  date: Date;
+  value: number;
+}
+
+export const buildPlanVsActualData = (
+  planSeries: NetWorthProjectionPoint[],
+  actualPoints: ActualHistoryPoint[],
+  fallback?: number
+): Array<{ label: string; plan: number; actual: number }> => {
+  if (planSeries.length === 0) {
+    return [];
+  }
+
+  const sortedActual = actualPoints
+    .filter((point) => !Number.isNaN(point.date.getTime()) && Number.isFinite(point.value))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  let index = 0;
+  let lastActual =
+    sortedActual.length > 0
+      ? sortedActual[0].value
+      : fallback ?? planSeries[0]?.baseline ?? 0;
+
+  return planSeries.map((point) => {
+    while (index < sortedActual.length && sortedActual[index].date <= point.date) {
+      lastActual = sortedActual[index].value;
+      index += 1;
+    }
+
+    return {
+      label: point.label,
+      plan: Number(point.baseline.toFixed(2)),
+      actual: Number(lastActual.toFixed(2))
+    };
+  });
+};
+
 const scenarioColors = ['#38bdf8', '#22c55e', '#f97316', '#a855f7', '#14b8a6', '#facc15', '#ef4444', '#6366f1'];
 
 const getProjectionLabel = (entries: ProjectionEntry[]): string => {
