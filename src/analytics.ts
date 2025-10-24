@@ -26,6 +26,11 @@ const projectionFormatter = new Intl.DateTimeFormat('tr-TR', {
   year: 'numeric'
 });
 
+const payDayFormatter = new Intl.DateTimeFormat('tr-TR', {
+  day: 'numeric',
+  month: 'short'
+});
+
 export interface TrendPoint {
   label: string;
   value: number;
@@ -110,6 +115,23 @@ const resolveIncomeDate = (start: Date, day: number, offset: number): Date => {
   const targetMonth = ((monthIndex % 12) + 12) % 12;
   const clampTarget = clampDayForMonth(targetYear, targetMonth, day);
   return new Date(targetYear, targetMonth, clampTarget);
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const startOfDay = (input: Date): Date => {
+  const date = new Date(input);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const addMonths = (date: Date, months: number): Date => {
+  const result = new Date(date);
+  const monthIndex = result.getMonth() + months;
+  const year = result.getFullYear() + Math.floor(monthIndex / 12);
+  const month = ((monthIndex % 12) + 12) % 12;
+  const clamp = clampDayForMonth(year, month, result.getDate());
+  return new Date(year, month, clamp);
 };
 
 export const buildPlanProjectionSeries = (
@@ -199,6 +221,81 @@ export const buildPlanProjectionWithExtraIncome = (
       withExtra: point.baseline + runningExtra
     };
   });
+};
+
+export const buildPaydayPlanSeries = (
+  currentNetWorth: number,
+  monthlyIncome: number,
+  plannedMonthlySpend: number,
+  monthsAhead: number,
+  incomeDay: number,
+  plannedCompletion?: Date | null
+): NetWorthProjectionPoint[] => {
+  const base = clampNumber(currentNetWorth);
+  const incomeValue = Math.max(0, clampNumber(monthlyIncome));
+  const spendValue = Math.max(0, clampNumber(plannedMonthlySpend));
+  const incomeDaySafe = Number.isFinite(incomeDay) && incomeDay >= 1 && incomeDay <= 31 ? Math.floor(incomeDay) : 1;
+
+  const start = startOfDay(new Date());
+  const monthsPositive = Math.max(1, Number.isFinite(monthsAhead) ? Math.ceil(monthsAhead) : 1);
+  let endDate = plannedCompletion ? startOfDay(plannedCompletion) : addMonths(start, monthsPositive);
+  if (endDate <= start) {
+    endDate = addMonths(start, monthsPositive);
+  }
+
+  const points: NetWorthProjectionPoint[] = [
+    {
+      label: payDayFormatter.format(start),
+      date: start,
+      baseline: Number(base.toFixed(2))
+    }
+  ];
+
+  let currentNet = base;
+  let cycleStart = start;
+  let cycleIndex = 1;
+  const maxCycles = Math.min(240, monthsPositive + 6);
+
+  while (cycleStart < endDate && cycleIndex <= maxCycles) {
+    const nextPayDay = startOfDay(resolveIncomeDate(start, incomeDaySafe, cycleIndex));
+    const totalCycleDays = Math.max(1, Math.round((nextPayDay.getTime() - cycleStart.getTime()) / DAY_MS));
+
+    if (nextPayDay >= endDate) {
+      const elapsedDays = Math.max(0, Math.round((endDate.getTime() - cycleStart.getTime()) / DAY_MS));
+      const spendPerDay = spendValue / totalCycleDays;
+      const spentSoFar = Math.min(spendValue, spendPerDay * elapsedDays);
+      const partialNet = currentNet - spentSoFar;
+      points.push({
+        label: payDayFormatter.format(endDate),
+        date: endDate,
+        baseline: Number(partialNet.toFixed(2))
+      });
+      break;
+    }
+
+    const beforeIncomeNet = currentNet - spendValue;
+    const dayBeforePayday = new Date(nextPayDay.getTime() - DAY_MS);
+    if (dayBeforePayday > cycleStart) {
+      points.push({
+        label: payDayFormatter.format(dayBeforePayday),
+        date: dayBeforePayday,
+        baseline: Number(beforeIncomeNet.toFixed(2))
+      });
+    }
+
+    const afterIncomeNet = beforeIncomeNet + incomeValue;
+    points.push({
+      label: payDayFormatter.format(nextPayDay),
+      date: nextPayDay,
+      baseline: Number(afterIncomeNet.toFixed(2))
+    });
+
+    currentNet = afterIncomeNet;
+    cycleStart = nextPayDay;
+    cycleIndex += 1;
+  }
+
+  return points;
 };
 
 const scenarioColors = ['#38bdf8', '#22c55e', '#f97316', '#a855f7', '#14b8a6', '#facc15', '#ef4444', '#6366f1'];

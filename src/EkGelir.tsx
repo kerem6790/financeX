@@ -55,11 +55,43 @@ const EkGelir = () => {
 
   const scenarioNetWorth = netWorth + totals.total;
 
+  const monthsAhead = useMemo(() => {
+    const durationMonths = Number.isFinite(planningMetrics.planDurationMonths)
+      ? Math.ceil(planningMetrics.planDurationMonths)
+      : 0;
+
+    let monthsFromDate = 0;
+    if (planningMetrics.plannedCompletionDate) {
+      const target = new Date(planningMetrics.plannedCompletionDate);
+      if (!Number.isNaN(target.getTime())) {
+        const now = new Date();
+        const diffMs = target.getTime() - now.getTime();
+        if (diffMs > 0) {
+          monthsFromDate = Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 30.4375));
+        }
+      }
+    }
+
+    let result = Math.max(durationMonths, monthsFromDate);
+    if (!Number.isFinite(result) || result <= 0) {
+      result = 3;
+    }
+
+    return Math.min(120, Math.max(1, result));
+  }, [planningMetrics.planDurationMonths, planningMetrics.plannedCompletionDate]);
+
   const projectionCombinations = useMemo(() => {
     const parsed = Number.parseInt(monthlyIncomeDay, 10);
     const incomeDay = Number.isFinite(parsed) ? parsed : 1;
-    return buildProjectionCombinationSeries(netWorth, planningMetrics.monthlySavingTarget, projections, 3, 3, incomeDay);
-  }, [monthlyIncomeDay, netWorth, planningMetrics.monthlySavingTarget, projections]);
+    return buildProjectionCombinationSeries(
+      netWorth,
+      planningMetrics.monthlySavingTarget,
+      projections,
+      monthsAhead,
+      3,
+      incomeDay
+    );
+  }, [monthlyIncomeDay, netWorth, planningMetrics.monthlySavingTarget, projections, monthsAhead]);
 
   const sortedProjectionSeries = useMemo(() => {
     if (projectionCombinations.series.length === 0) {

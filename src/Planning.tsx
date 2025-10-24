@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
 import {
   buildMotivationMessage,
-  buildPlanProjectionSeries,
+  buildPaydayPlanSeries,
   calculateEstimatedGoalDate,
   formatDate
 } from './analytics';
-import { formatCurrency, useFinanceStore, usePlanningStore } from './store';
+import { formatCurrency, parseAmount, useFinanceStore, usePlanningStore } from './store';
 
 const Planning = () => {
   const netWorth = useFinanceStore((state) => state.totals.netWorth);
@@ -49,12 +49,46 @@ const Planning = () => {
   }, [metrics.goalValue, metrics.weeklyLimit, metrics.weeklySpend, netWorth, plannedCompletionDate]);
 
   const motivationMessage = useMemo(() => buildMotivationMessage(metrics.progressToGoal), [metrics.progressToGoal]);
+  const planMonthsAhead = useMemo(() => {
+    const durationMonths = Number.isFinite(metrics.planDurationMonths)
+      ? Math.ceil(metrics.planDurationMonths)
+      : 0;
+
+    let monthsFromDate = 0;
+    if (plannedCompletionDate) {
+      const now = new Date();
+      const diffMs = plannedCompletionDate.getTime() - now.getTime();
+      if (diffMs > 0) {
+        monthsFromDate = Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 30.4375));
+      }
+    }
+
+    const value = Math.max(durationMonths, monthsFromDate);
+    if (!Number.isFinite(value) || value <= 0) {
+      return 3;
+    }
+
+    return Math.min(120, value);
+  }, [metrics.planDurationMonths, plannedCompletionDate]);
+
+  const monthlyIncomeValue = useMemo(() => parseAmount(monthlyIncome), [monthlyIncome]);
+  const plannedMonthlySpend = useMemo(() => {
+    const spend = monthlyIncomeValue - metrics.monthlySavingTarget;
+    return spend > 0 ? spend : 0;
+  }, [monthlyIncomeValue, metrics.monthlySavingTarget]);
 
   const planProjection = useMemo(() => {
     const day = Number.parseInt(monthlyIncomeDay, 10);
     const incomeDay = Number.isFinite(day) ? day : 1;
-    return buildPlanProjectionSeries(netWorth, metrics.monthlySavingTarget, 3, incomeDay);
-  }, [monthlyIncomeDay, netWorth, metrics.monthlySavingTarget]);
+    return buildPaydayPlanSeries(
+      netWorth,
+      monthlyIncomeValue,
+      plannedMonthlySpend,
+      planMonthsAhead,
+      incomeDay,
+      plannedCompletionDate ?? null
+    );
+  }, [monthlyIncomeDay, monthlyIncomeValue, netWorth, plannedMonthlySpend, planMonthsAhead, plannedCompletionDate]);
 
   const hasShortfall = !metrics.planFeasible;
   const shortfallPercent = (metrics.shortfallRatio * 100).toFixed(1);
@@ -335,7 +369,7 @@ const Planning = () => {
                 <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                   Planlanan Net Worth Trend'i
                 </span>
-                <p className="text-sm text-slate-500">Şu anki tempoda önümüzdeki 3 ay için beklenen hareket.</p>
+                <p className="text-sm text-slate-500">Şu anki tempoda plan hedefi boyunca maaş günü bazlı nakit akışı.</p>
               </div>
             </div>
             <div className="mt-4 h-64 w-full">
