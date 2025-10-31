@@ -1,5 +1,5 @@
 import type { DragEvent } from 'react';
-import { Fragment, useCallback, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ROW_TYPE_OPTIONS,
   formatCurrency,
@@ -25,6 +25,41 @@ const UNIT_BADGE_BY_TYPE: Record<RowType, Unit> = {
 
 type SectionKey = 'assets' | 'cards' | 'debts' | 'crypto';
 
+type EntryDraft = {
+  name: string;
+  amount: string;
+  type: RowType;
+  unit: Unit;
+  creditLimit: string;
+};
+
+const createEmptyDraft = (): EntryDraft => ({
+  name: '',
+  amount: '',
+  type: 'Nakit',
+  unit: 'TL',
+  creditLimit: ''
+});
+
+const createDraftFromEntry = (entry: Entry): EntryDraft => ({
+  name: entry.name,
+  amount: entry.amount,
+  type: entry.type,
+  unit: entry.unit,
+  creditLimit: entry.creditLimit ?? ''
+});
+
+const areEntryAndDraftEqual = (entry: Entry, draft: EntryDraft): boolean => {
+  const creditLimitActual = entry.creditLimit ?? '';
+  return (
+    entry.name === draft.name &&
+    entry.amount === draft.amount &&
+    entry.type === draft.type &&
+    entry.unit === draft.unit &&
+    creditLimitActual === draft.creditLimit
+  );
+};
+
 const InputPanel = () => {
   const entries = useFinanceStore((state) => state.entries);
   const totals = useFinanceStore((state) => state.totals);
@@ -32,7 +67,7 @@ const InputPanel = () => {
   const categoryHistory = useFinanceStore((state) => state.categoryHistory);
   const removeCategoryPoint = useFinanceStore((state) => state.removeCategoryPoint);
   const clearCategoryHistory = useFinanceStore((state) => state.clearCategoryHistory);
-  const updateEntry = useFinanceStore((state) => state.updateEntry);
+  const applyEntryUpdates = useFinanceStore((state) => state.applyEntryUpdates);
   const addEntry = useFinanceStore((state) => state.addEntry);
   const removeEntry = useFinanceStore((state) => state.removeEntry);
   const reorderEntries = useFinanceStore((state) => state.reorderEntries);
@@ -47,11 +82,82 @@ const InputPanel = () => {
   });
   const [activeChartSection, setActiveChartSection] = useState<SectionKey | null>(null);
 
-  const handleRowChange = useCallback(
-    <Key extends keyof Omit<Entry, 'id'>>(id: string, key: Key, value: Entry[Key]) => {
-      updateEntry(id, key, value);
+  const [draftEntries, setDraftEntries] = useState<Record<string, EntryDraft>>({});
+
+  useEffect(() => {
+    setDraftEntries((previous) => {
+      const next: Record<string, EntryDraft> = {};
+      entries.forEach((entry) => {
+        const existing = previous[entry.id];
+        if (!existing) {
+          next[entry.id] = createDraftFromEntry(entry);
+          return;
+        }
+
+        next[entry.id] = areEntryAndDraftEqual(entry, existing) ? createDraftFromEntry(entry) : existing;
+      });
+      return next;
+    });
+  }, [entries]);
+
+  const handleDraftChange = useCallback(
+    <Key extends keyof EntryDraft>(id: string, key: Key, value: EntryDraft[Key]) => {
+      setDraftEntries((previous) => {
+        const sourceEntry = entries.find((item) => item.id === id);
+        const base = previous[id] ?? (sourceEntry ? createDraftFromEntry(sourceEntry) : createEmptyDraft());
+
+        let nextDraft: EntryDraft = { ...base, [key]: value };
+
+        if (key === 'type') {
+          const nextType = value as RowType;
+          nextDraft = {
+            ...nextDraft,
+            type: nextType,
+            unit: UNIT_BADGE_BY_TYPE[nextType]
+          };
+        }
+
+        return { ...previous, [id]: nextDraft };
+      });
     },
-    [updateEntry]
+    [entries]
+  );
+
+  const handleSaveEntry = useCallback(
+    (id: string) => {
+      const source = entries.find((item) => item.id === id);
+      const draft = draftEntries[id];
+      if (!source || !draft || areEntryAndDraftEqual(source, draft)) {
+        return;
+      }
+
+      const updates: Partial<Entry> = {};
+
+      if (draft.name !== source.name) {
+        updates.name = draft.name;
+      }
+      if (draft.amount !== source.amount) {
+        updates.amount = draft.amount;
+      }
+      if (draft.type !== source.type) {
+        updates.type = draft.type;
+      }
+      if (draft.unit !== source.unit) {
+        updates.unit = draft.unit;
+      }
+
+      if (source.type === 'Kredi Kartı') {
+        const currentCredit = source.creditLimit ?? '';
+        if (draft.type !== 'Kredi Kartı') {
+          updates.creditLimit = '';
+        } else if (draft.creditLimit !== currentCredit) {
+          updates.creditLimit = draft.creditLimit;
+        }
+      }
+
+      applyEntryUpdates(id, updates);
+    },
+    [applyEntryUpdates, draftEntries, entries]
   );
 
   const handleDragStart = useCallback((id: string) => {
@@ -171,17 +277,21 @@ const InputPanel = () => {
 
   const renderGeneralEntry = useCallback(
     (entry: Entry, colSpan: number, amountLabel: string, amountPlaceholder: string) => {
-      const amount = parseAmount(entry.amount);
-      const amountInTl = convertToTl(amount, entry.unit);
-      const creditCardMeta = getCreditCardMeta(entry, amountInTl);
+      const draft = draftEntries[entry.id] ?? createDraftFromEntry(entry);
+      const preview: Entry = { ...entry, ...draft };
+      const amount = parseAmount(draft.amount);
+      const amountInTl = convertToTl(amount, draft.unit);
+      const creditCardMeta = getCreditCardMeta(preview, amountInTl);
       const isDragging = draggedRowId === entry.id;
-      const showDebtHint = entry.type === 'Borç' && creditCardMeta !== null;
-      const badgeLabel = UNIT_BADGE_BY_TYPE[entry.type];
+      const isDirty = !areEntryAndDraftEqual(entry, draft);
+      const showDebtHint = draft.type === 'Borç' && creditCardMeta !== null;
+      const badgeLabel = UNIT_BADGE_BY_TYPE[draft.type];
+      const rowClassName = `input-table__row${isDragging ? ' input-table__row--dragging' : ''}${isDirty ? ' input-table__row--dirty' : ''}`;
 
       return (
         <Fragment key={entry.id}>
           <tr
-            className={`input-table__row${isDragging ? ' input-table__row--dragging' : ''}`}
+            className={rowClassName}
             draggable
             onDragStart={() => handleDragStart(entry.id)}
             onDragOver={handleDragOver}
@@ -191,8 +301,8 @@ const InputPanel = () => {
             <td className="input-table__cell-wrapper input-table__cell-wrapper--grow">
               <input
                 className="input-table__cell input-table__cell--grow"
-                value={entry.name}
-                onChange={(event) => handleRowChange(entry.id, 'name', event.target.value)}
+                value={draft.name}
+                onChange={(event) => handleDraftChange(entry.id, 'name', event.target.value)}
                 placeholder="örn. QNB"
                 aria-label="Kaynak"
               />
@@ -203,8 +313,8 @@ const InputPanel = () => {
                   className="input-table__cell input-table__cell--number"
                   type="number"
                   inputMode="decimal"
-                  value={entry.amount}
-                  onChange={(event) => handleRowChange(entry.id, 'amount', event.target.value)}
+                  value={draft.amount}
+                  onChange={(event) => handleDraftChange(entry.id, 'amount', event.target.value)}
                   placeholder={amountPlaceholder}
                   aria-label={amountLabel}
                 />
@@ -214,8 +324,8 @@ const InputPanel = () => {
             <td className="input-table__cell-wrapper">
               <select
                 className="input-table__cell"
-                value={entry.type}
-                onChange={(event) => handleRowChange(entry.id, 'type', event.target.value as RowType)}
+                value={draft.type}
+                onChange={(event) => handleDraftChange(entry.id, 'type', event.target.value as RowType)}
                 aria-label="Tür"
               >
                 {GENERAL_ROW_TYPES.map((option) => (
@@ -226,14 +336,24 @@ const InputPanel = () => {
               </select>
             </td>
             <td className="input-table__actions">
-              <button
-                type="button"
-                className="input-table__delete"
-                onClick={() => removeEntry(entry.id)}
-                aria-label={`${entry.name || 'Kalem'} satırını sil`}
-              >
-                ×
-              </button>
+              <div className="input-table__action-buttons">
+                <button
+                  type="button"
+                  className="input-table__save"
+                  onClick={() => handleSaveEntry(entry.id)}
+                  disabled={!isDirty}
+                >
+                  Kaydet
+                </button>
+                <button
+                  type="button"
+                  className="input-table__delete"
+                  onClick={() => removeEntry(entry.id)}
+                  aria-label={`${entry.name || 'Kalem'} satırını sil`}
+                >
+                  ×
+                </button>
+              </div>
             </td>
           </tr>
           {showDebtHint ? (
@@ -249,22 +369,28 @@ const InputPanel = () => {
     [
       convertToTl,
       draggedRowId,
+      draftEntries,
+      handleDraftChange,
       handleDragEnd,
       handleDragOver,
       handleDrop,
       handleDragStart,
-      handleRowChange,
+      handleSaveEntry,
       removeEntry
     ]
   );
 
   const renderCreditCardEntry = useCallback(
     (entry: Entry, colSpan: number) => {
-      const totalLimit = parseAmount(entry.creditLimit ?? '');
-      const availableInTl = convertToTl(parseAmount(entry.amount), entry.unit);
-      const meta = getCreditCardMeta(entry, availableInTl);
+      const draft = draftEntries[entry.id] ?? createDraftFromEntry(entry);
+      const preview: Entry = { ...entry, ...draft };
+      const totalLimit = parseAmount(draft.creditLimit);
+      const availableInTl = convertToTl(parseAmount(draft.amount), draft.unit);
+      const meta = getCreditCardMeta(preview, availableInTl);
       const isDragging = draggedRowId === entry.id;
-      const badgeLabel = UNIT_BADGE_BY_TYPE[entry.type];
+      const isDirty = !areEntryAndDraftEqual(entry, draft);
+      const badgeLabel = UNIT_BADGE_BY_TYPE[draft.type];
+      const rowClassName = `input-table__row${isDragging ? ' input-table__row--dragging' : ''}${isDirty ? ' input-table__row--dirty' : ''}`;
 
       const metaContent = meta ? (
         <>
@@ -280,7 +406,7 @@ const InputPanel = () => {
       return (
         <Fragment key={entry.id}>
           <tr
-            className={`input-table__row${isDragging ? ' input-table__row--dragging' : ''}`}
+            className={rowClassName}
             draggable
             onDragStart={() => handleDragStart(entry.id)}
             onDragOver={handleDragOver}
@@ -290,8 +416,8 @@ const InputPanel = () => {
             <td className="input-table__cell-wrapper input-table__cell-wrapper--grow">
               <input
                 className="input-table__cell input-table__cell--grow"
-                value={entry.name}
-                onChange={(event) => handleRowChange(entry.id, 'name', event.target.value)}
+                value={draft.name}
+                onChange={(event) => handleDraftChange(entry.id, 'name', event.target.value)}
                 placeholder="örn. QNB"
                 aria-label="Kart"
               />
@@ -303,8 +429,8 @@ const InputPanel = () => {
                   type="number"
                   min="0"
                   inputMode="decimal"
-                  value={entry.creditLimit ?? ''}
-                  onChange={(event) => handleRowChange(entry.id, 'creditLimit', event.target.value)}
+                  value={draft.creditLimit}
+                  onChange={(event) => handleDraftChange(entry.id, 'creditLimit', event.target.value)}
                   placeholder="örn. 282000"
                   aria-label="Toplam Limit"
                 />
@@ -318,8 +444,8 @@ const InputPanel = () => {
                   type="number"
                   min="0"
                   inputMode="decimal"
-                  value={entry.amount}
-                  onChange={(event) => handleRowChange(entry.id, 'amount', event.target.value)}
+                  value={draft.amount}
+                  onChange={(event) => handleDraftChange(entry.id, 'amount', event.target.value)}
                   placeholder="örn. 150000"
                   aria-label="Kullanılabilir Limit"
                 />
@@ -327,14 +453,24 @@ const InputPanel = () => {
               </div>
             </td>
             <td className="input-table__actions">
-              <button
-                type="button"
-                className="input-table__delete"
-                onClick={() => removeEntry(entry.id)}
-                aria-label={`${entry.name || 'Kredi kartı'} satırını sil`}
-              >
-                ×
-              </button>
+              <div className="input-table__action-buttons">
+                <button
+                  type="button"
+                  className="input-table__save"
+                  onClick={() => handleSaveEntry(entry.id)}
+                  disabled={!isDirty}
+                >
+                  Kaydet
+                </button>
+                <button
+                  type="button"
+                  className="input-table__delete"
+                  onClick={() => removeEntry(entry.id)}
+                  aria-label={`${entry.name || 'Kredi kartı'} satırını sil`}
+                >
+                  ×
+                </button>
+              </div>
             </td>
           </tr>
           <tr className="input-table__meta-row">
@@ -345,7 +481,7 @@ const InputPanel = () => {
         </Fragment>
       );
     },
-    [convertToTl, draggedRowId, handleDragEnd, handleDragOver, handleDrop, handleDragStart, handleRowChange, removeEntry]
+    [convertToTl, draftEntries, draggedRowId, handleDraftChange, handleDragEnd, handleDragOver, handleDrop, handleDragStart, handleSaveEntry, removeEntry]
   );
 
   const generalColSpan = 4;

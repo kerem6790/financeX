@@ -35,6 +35,7 @@ const Dashboard = () => {
   const monthlyIncome = usePlanningStore((state) => state.monthlyIncome);
   const monthlyIncomeDay = usePlanningStore((state) => state.monthlyIncomeDay);
   const currentGoal = usePlanningStore((state) => state.goal);
+  const startDate = usePlanningStore((state) => state.startDate);
   const expenses = useExpenseStore((state) => state.entries);
 
   const [undoSnapshot, setUndoSnapshot] = useState<NetWorthSnapshot | null>(null);
@@ -104,6 +105,14 @@ const Dashboard = () => {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }, [planningMetrics.plannedCompletionDate]);
 
+  const planStartDate = useMemo(() => {
+    if (!startDate) {
+      return null;
+    }
+    const parsed = new Date(startDate);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, [startDate]);
+
   const planMonthsAhead = useMemo(() => {
     const durationMonths = Number.isFinite(planningMetrics.planDurationMonths)
       ? Math.ceil(planningMetrics.planDurationMonths)
@@ -145,9 +154,18 @@ const Dashboard = () => {
       plannedMonthlySpend,
       planMonthsAhead,
       incomeDay,
-      plannedCompletionDate
+      plannedCompletionDate,
+      planStartDate
     );
-  }, [monthlyIncomeDay, totals.netWorth, monthlyIncomeValue, plannedMonthlySpend, planMonthsAhead, plannedCompletionDate]);
+  }, [
+    monthlyIncomeDay,
+    totals.netWorth,
+    monthlyIncomeValue,
+    plannedMonthlySpend,
+    planMonthsAhead,
+    plannedCompletionDate,
+    planStartDate
+  ]);
 
   const actualPointsFromEntries = useMemo(() => {
     const points = planHistory
@@ -202,9 +220,19 @@ const Dashboard = () => {
       expenses,
       planMonthsAhead,
       incomeDay,
-      plannedCompletionDate
+      plannedCompletionDate,
+      planStartDate
     );
-  }, [monthlyIncomeDay, totals.netWorth, monthlyIncomeValue, expenses, planMonthsAhead, plannedCompletionDate, planSeries.length]);
+  }, [
+    monthlyIncomeDay,
+    totals.netWorth,
+    monthlyIncomeValue,
+    expenses,
+    planMonthsAhead,
+    plannedCompletionDate,
+    planStartDate,
+    planSeries.length
+  ]);
 
   const expenseActualPoints = useMemo(
     () => expenseActualSeries.map((point) => ({ date: point.date, value: point.baseline })),

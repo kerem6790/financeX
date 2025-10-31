@@ -376,7 +376,7 @@
 
 .input-table__actions-header {
   text-align: center;
-  width: 60px;
+  width: 124px;
 }
 
 .input-table__row td {
@@ -391,7 +391,7 @@
 }
 
 .input-table__row--dragging td {
-  background-color: #e2e8f0;
+  background-color: #e2e8f0 !important;
   opacity: 0.85;
 }
 
@@ -406,7 +406,7 @@
 .input-table__actions {
   padding: 0;
   text-align: center;
-  width: 48px;
+  width: 124px;
 }
 
 .input-table__cell {
@@ -639,4 +639,44 @@ input[type="number"] {
     grid-template-columns: 1fr;
     gap: 18px;
   }
+}
+.input-table__row--dirty td {
+  background-color: #fff7ed;
+}
+
+.input-table__row--dirty:hover td {
+  background-color: #ffe7c6;
+}
+
+.input-table__action-buttons {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.input-table__save {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.input-table__save:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.2);
+  color: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+.input-table__save:disabled {
+  background: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+  transform: none;
 }

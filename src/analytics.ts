@@ -229,16 +229,23 @@ export const buildPaydayPlanSeries = (
   plannedMonthlySpend: number,
   monthsAhead: number,
   incomeDay: number,
-  plannedCompletion?: Date | null
+  plannedCompletion?: Date | null,
+  planStart?: Date | null
 ): NetWorthProjectionPoint[] => {
   const base = clampNumber(currentNetWorth);
   const incomeValue = Math.max(0, clampNumber(monthlyIncome));
   const spendValue = Math.max(0, clampNumber(plannedMonthlySpend));
   const incomeDaySafe = Number.isFinite(incomeDay) && incomeDay >= 1 && incomeDay <= 31 ? Math.floor(incomeDay) : 1;
 
-  const start = startOfDay(new Date());
+  const resolvedStart =
+    planStart && !Number.isNaN(planStart.getTime())
+      ? planStart
+      : new Date();
+  const start = startOfDay(resolvedStart);
   const monthsPositive = Math.max(1, Number.isFinite(monthsAhead) ? Math.ceil(monthsAhead) : 1);
-  let endDate = plannedCompletion ? startOfDay(plannedCompletion) : addMonths(start, monthsPositive);
+  const resolvedCompletion =
+    plannedCompletion && !Number.isNaN(plannedCompletion.getTime()) ? plannedCompletion : null;
+  let endDate = resolvedCompletion ? startOfDay(resolvedCompletion) : addMonths(start, monthsPositive);
   if (endDate <= start) {
     endDate = addMonths(start, monthsPositive);
   }
@@ -304,15 +311,22 @@ export const buildExpenseActualSeries = (
   expenses: SpendingEntry[],
   monthsAhead: number,
   incomeDay: number,
-  plannedCompletion?: Date | null
+  plannedCompletion?: Date | null,
+  planStart?: Date | null
 ): NetWorthProjectionPoint[] => {
   const base = clampNumber(currentNetWorth);
   const incomeValue = Math.max(0, clampNumber(monthlyIncome));
   const incomeDaySafe = Number.isFinite(incomeDay) && incomeDay >= 1 && incomeDay <= 31 ? Math.floor(incomeDay) : 1;
 
-  const start = startOfDay(new Date());
+  const resolvedStart =
+    planStart && !Number.isNaN(planStart.getTime())
+      ? planStart
+      : new Date();
+  const start = startOfDay(resolvedStart);
   const monthsPositive = Math.max(1, Number.isFinite(monthsAhead) ? Math.ceil(monthsAhead) : 1);
-  let endDate = plannedCompletion ? startOfDay(plannedCompletion) : addMonths(start, monthsPositive);
+  const resolvedCompletion =
+    plannedCompletion && !Number.isNaN(plannedCompletion.getTime()) ? plannedCompletion : null;
+  let endDate = resolvedCompletion ? startOfDay(resolvedCompletion) : addMonths(start, monthsPositive);
   if (endDate <= start) {
     endDate = addMonths(start, monthsPositive);
   }

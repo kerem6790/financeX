@@ -13,11 +13,13 @@ const Planning = () => {
   const goal = usePlanningStore((state) => state.goal);
   const monthlyIncome = usePlanningStore((state) => state.monthlyIncome);
   const monthlyIncomeDay = usePlanningStore((state) => state.monthlyIncomeDay);
+  const startDate = usePlanningStore((state) => state.startDate);
   const expenses = usePlanningStore((state) => state.expenses);
   const metrics = usePlanningStore((state) => state.metrics);
   const setGoal = usePlanningStore((state) => state.setGoal);
   const setMonthlyIncome = usePlanningStore((state) => state.setMonthlyIncome);
   const setMonthlyIncomeDay = usePlanningStore((state) => state.setMonthlyIncomeDay);
+  const setStartDate = usePlanningStore((state) => state.setStartDate);
   const targetMode = usePlanningStore((state) => state.targetMode);
   const targetDurationMonths = usePlanningStore((state) => state.targetDurationMonths);
   const targetDate = usePlanningStore((state) => state.targetDate);
@@ -36,6 +38,14 @@ const Planning = () => {
     const parsed = new Date(metrics.plannedCompletionDate);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }, [metrics.plannedCompletionDate]);
+
+  const planStartDate = useMemo(() => {
+    if (!startDate) {
+      return null;
+    }
+    const parsed = new Date(startDate);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, [startDate]);
 
   const estimatedDate = useMemo(() => {
     const computed = calculateEstimatedGoalDate(
@@ -86,9 +96,18 @@ const Planning = () => {
       plannedMonthlySpend,
       planMonthsAhead,
       incomeDay,
-      plannedCompletionDate ?? null
+      plannedCompletionDate ?? null,
+      planStartDate ?? null
     );
-  }, [monthlyIncomeDay, monthlyIncomeValue, netWorth, plannedMonthlySpend, planMonthsAhead, plannedCompletionDate]);
+  }, [
+    monthlyIncomeDay,
+    monthlyIncomeValue,
+    netWorth,
+    plannedMonthlySpend,
+    planMonthsAhead,
+    plannedCompletionDate,
+    planStartDate
+  ]);
 
   const hasShortfall = !metrics.planFeasible;
   const shortfallPercent = (metrics.shortfallRatio * 100).toFixed(1);
@@ -169,7 +188,17 @@ const Planning = () => {
               </label>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2 md:items-end">
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <label className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-slate-600">Plan başlangıç tarihi</span>
+                <input
+                  type="date"
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-all duration-200 focus:border-fx-accent focus:outline-none focus:ring-4 focus:ring-fx-accent/20"
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                />
+                <span className="text-xs text-slate-400">Planın hangi tarihte başladığını (veya başlayacağını) seç.</span>
+              </label>
               {targetMode === 'duration' ? (
                 <label className="flex flex-col gap-2">
                   <span className="text-sm font-medium text-slate-600">Planlanan süre (ay)</span>
@@ -200,6 +229,9 @@ const Planning = () => {
                 <p className="font-semibold text-slate-800">Plan süresi</p>
                 <p>
                   ≈ {metrics.planDurationMonths > 0 ? metrics.planDurationMonths.toFixed(1) : '0.0'} ay ({targetMode === 'date' ? 'tarih bazlı' : 'süre bazlı'})
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Başlangıç: {formatDate(planStartDate)}
                 </p>
               </div>
             </div>

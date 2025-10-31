@@ -141,6 +141,7 @@ const createSpendingEntry = (payload: Omit<SpendingEntry, 'id' | 'createdAt'>): 
 
 const MAX_CATEGORY_HISTORY = 200;
 const MAX_PLAN_HISTORY = 400;
+const PLAN_HISTORY_MERGE_WINDOW_MS = 30 * 1000;
 
 const createEmptyCategoryHistory = (): CategoryHistory => ({
   cards: [],
@@ -308,14 +309,16 @@ const parsePositiveFloat = (value: string): number | null => {
 const calculatePlanDurationMonths = (
   mode: 'duration' | 'date',
   durationValue: string,
-  targetDateValue: string
+  targetDateValue: string,
+  startDateValue: string
 ): { months: number; completionDateIso: string | null } => {
-  const now = new Date();
+  const parsedStart = startDateValue ? new Date(startDateValue) : null;
+  const planStart = parsedStart && !Number.isNaN(parsedStart.getTime()) ? parsedStart : new Date();
 
   if (mode === 'duration') {
     const parsed = parsePositiveFloat(durationValue);
     const months = parsed ?? 4;
-    const completion = new Date(now);
+    const completion = new Date(planStart);
     completion.setDate(completion.getDate() + Math.max(Math.round(months * 30.4375), 1));
     return { months, completionDateIso: completion.toISOString() };
   }
@@ -329,10 +332,12 @@ const calculatePlanDurationMonths = (
     return { months: 4, completionDateIso: null };
   }
 
-  const diffMs = targetDate.getTime() - now.getTime();
+  const effectiveTarget = targetDate.getTime() >= planStart.getTime() ? targetDate : planStart;
+  const diffMs = effectiveTarget.getTime() - planStart.getTime();
   const diffMonths = diffMs / (1000 * 60 * 60 * 24 * 30.4375);
-  const months = diffMonths > 0 ? diffMonths : 1;
-  return { months, completionDateIso: targetDate.toISOString() };
+  const minimalMonths = 1 / 30.4375;
+  const months = diffMonths > 0 ? diffMonths : minimalMonths;
+  return { months, completionDateIso: effectiveTarget.toISOString() };
 };
 
 export const parseAmount = (value: string): number => {
@@ -401,6 +406,7 @@ interface FinanceState {
   reorderEntries: (fromId: string, toId: string) => void;
   setUsdRate: (value: string) => void;
   autoCalculateTotals: () => void;
+  applyEntryUpdates: (id: string, updates: Partial<Entry>) => void;
   captureSnapshot: () => void;
   setSnapshots: (snapshots: Partial<NetWorthSnapshot>[]) => void;
   removeSnapshot: (id: string) => void;
@@ -460,6 +466,50 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     });
     get().autoCalculateTotals();
   },
+  applyEntryUpdates: (id, updates) => {
+    if (!updates || Object.keys(updates).length === 0) {
+      return;
+    }
+
+    let didUpdate = false;
+
+    set((state) => {
+      let mutated = false;
+      const nextEntries = state.entries.map((entry) => {
+        if (entry.id !== id) {
+          return entry;
+        }
+
+        const merged = applyUnitForType({ ...entry, ...updates });
+        const currentCredit = entry.creditLimit ?? '';
+        const nextCredit = merged.creditLimit ?? '';
+
+        if (
+          merged.name === entry.name &&
+          merged.amount === entry.amount &&
+          merged.type === entry.type &&
+          merged.unit === entry.unit &&
+          nextCredit === currentCredit
+        ) {
+          return entry;
+        }
+
+        mutated = true;
+        return merged;
+      });
+
+      if (!mutated) {
+        return state;
+      }
+
+      didUpdate = true;
+      return { entries: nextEntries };
+    });
+
+    if (didUpdate) {
+      get().autoCalculateTotals();
+    }
+  },
   setUsdRate: (value) => {
     set({ usdRate: value });
     get().autoCalculateTotals();
@@ -518,16 +568,39 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
       const nextPlanHistory = state.planHistory.slice();
       const currentNetWorth = assets - debt;
       const lastPlanPoint = nextPlanHistory[nextPlanHistory.length - 1];
+      const nowMs = Date.now();
 
-      if (!lastPlanPoint || Math.abs(lastPlanPoint.value - currentNetWorth) >= 0.01) {
+      if (!lastPlanPoint) {
         const point: PlanHistoryPoint = {
           id: generateId(),
           capturedAt: nowIso,
           value: Number(currentNetWorth.toFixed(2))
         };
         nextPlanHistory.push(point);
-        if (nextPlanHistory.length > MAX_PLAN_HISTORY) {
-          nextPlanHistory.shift();
+      } else {
+        const lastCapturedMs = new Date(lastPlanPoint.capturedAt).getTime();
+        const withinMergeWindow =
+          Number.isFinite(lastCapturedMs) && nowMs - lastCapturedMs <= PLAN_HISTORY_MERGE_WINDOW_MS;
+        const nextValue = Number(currentNetWorth.toFixed(2));
+
+        if (withinMergeWindow) {
+          if (Math.abs(lastPlanPoint.value - nextValue) >= 0.01) {
+            nextPlanHistory[nextPlanHistory.length - 1] = {
+              ...lastPlanPoint,
+              capturedAt: nowIso,
+              value: nextValue
+            };
+          }
+        } else if (Math.abs(lastPlanPoint.value - nextValue) >= 0.01) {
+          const point: PlanHistoryPoint = {
+            id: generateId(),
+            capturedAt: nowIso,
+            value: nextValue
+          };
+          nextPlanHistory.push(point);
+          if (nextPlanHistory.length > MAX_PLAN_HISTORY) {
+            nextPlanHistory.shift();
+          }
         }
       }
 
@@ -663,6 +736,7 @@ interface PlanningState {
   goal: string;
   monthlyIncome: string;
   monthlyIncomeDay: string;
+  startDate: string;
   expenses: FixedExpense[];
   metrics: PlanningMetrics;
   targetMode: 'duration' | 'date';
@@ -671,6 +745,7 @@ interface PlanningState {
   setGoal: (value: string) => void;
   setMonthlyIncome: (value: string) => void;
   setMonthlyIncomeDay: (value: string) => void;
+  setStartDate: (value: string) => void;
   setTargetMode: (mode: 'duration' | 'date') => void;
   setTargetDurationMonths: (value: string) => void;
   setTargetDate: (value: string) => void;
@@ -684,6 +759,7 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
   goal: '',
   monthlyIncome: '',
   monthlyIncomeDay: '1',
+  startDate: new Date().toISOString().slice(0, 10),
   expenses: [createPlanningExpense()],
   metrics: emptyMetrics,
   targetMode: 'duration',
@@ -701,6 +777,11 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
     const parsed = Number.parseInt(value, 10);
     const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 31) : 1;
     set({ monthlyIncomeDay: String(clamped) });
+  },
+  setStartDate: (value) => {
+    const next = ensureIsoDate(value);
+    set({ startDate: next });
+    get().recalculate();
   },
   setTargetMode: (mode) => {
     set({ targetMode: mode });
@@ -737,11 +818,11 @@ export const usePlanningStore = create<PlanningState>((set, get) => ({
     get().recalculate();
   },
   recalculate: () => {
-    const { goal, monthlyIncome, expenses, targetMode, targetDurationMonths, targetDate } = get();
+    const { goal, monthlyIncome, expenses, targetMode, targetDurationMonths, targetDate, startDate } = get();
     const goalValue = parseAmount(goal);
     const incomeValue = parseAmount(monthlyIncome);
     const fixedTotal = expenses.reduce((sum, expense) => sum + parseAmount(expense.amount), 0);
-    const planMeta = calculatePlanDurationMonths(targetMode, targetDurationMonths, targetDate);
+    const planMeta = calculatePlanDurationMonths(targetMode, targetDurationMonths, targetDate, startDate);
     const planDurationMonths = planMeta.months;
     const netWorth = useFinanceStore.getState().totals.netWorth;
     const remainingGoalRaw = goalValue - netWorth;
@@ -833,6 +914,7 @@ export interface PersistedPlanningState {
   goal: string;
   monthlyIncome: string;
   monthlyIncomeDay: string;
+  startDate: string;
   expenses: FixedExpense[];
   targetMode: 'duration' | 'date';
   targetDurationMonths: string;
@@ -913,6 +995,7 @@ export const getPersistedState = (): PersistedState => ({
     goal: usePlanningStore.getState().goal,
     monthlyIncome: usePlanningStore.getState().monthlyIncome,
     monthlyIncomeDay: usePlanningStore.getState().monthlyIncomeDay,
+    startDate: usePlanningStore.getState().startDate,
     expenses: usePlanningStore.getState().expenses,
     targetMode: usePlanningStore.getState().targetMode,
     targetDurationMonths: usePlanningStore.getState().targetDurationMonths,
@@ -974,6 +1057,7 @@ export const hydrateFromPersistedState = (persisted: Partial<PersistedState>) =>
       goal: planning.goal ?? '',
       monthlyIncome: planning.monthlyIncome ?? '',
       monthlyIncomeDay: planning.monthlyIncomeDay ?? '1',
+      startDate: ensureIsoDate(planning.startDate ?? ''),
       expenses:
         planning.expenses && planning.expenses.length > 0
           ? planning.expenses
