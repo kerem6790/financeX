@@ -16,6 +16,7 @@ import {
   LogResult,
   subscribeStateLogs
 } from './debugLogger';
+import { getSyncStatus, subscribeSyncStatus, SyncStatus } from './cloudSync';
 
 type TabKey = 'inputs' | 'dashboard' | 'expenses' | 'planning' | 'extra-income' | 'logs';
 
@@ -72,6 +73,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('inputs');
   const [lastLog, setLastLog] = useState<LogResult | null>(null);
   const [showLogWarning, setShowLogWarning] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => getSyncStatus());
   const activeContent = useMemo(() => tabs.find((tab) => tab.key === activeTab) ?? tabs[0], [activeTab]);
   const subtitle = activeContent.subtitle ?? 'finance yönetimi masaüstü deneyimi';
   const isInputs = activeContent.key === 'inputs';
@@ -128,8 +130,11 @@ function App() {
       setShowLogWarning(total >= LOG_WARNING_THRESHOLD);
     });
 
+    const unsubscribeSync = subscribeSyncStatus((status) => setSyncStatus(status));
+
     return () => {
       unsubscribe();
+      unsubscribeSync();
     };
   }, []);
 
@@ -174,6 +179,24 @@ function App() {
             </div>
           )}
         </header>
+        {syncStatus.type === 'offline' && (
+          <div className="sync-banner sync-banner--offline" role="alert">
+            <span>Çevrimdışısın — değişiklikler yalnızca yerel olarak kaydediliyor, buluta gönderilemiyor.</span>
+          </div>
+        )}
+        {syncStatus.type === 'conflict' && (
+          <div className="sync-banner sync-banner--conflict" role="alert">
+            <span>
+              Çakışma! Bulut daha yeni (v{syncStatus.cloudVersion} &gt; yerel v{syncStatus.localVersion}).
+              Bulut verisi uygulandı.
+            </span>
+          </div>
+        )}
+        {syncStatus.type === 'error' && (
+          <div className="sync-banner sync-banner--error" role="alert">
+            <span>Bulut sync hatası: {syncStatus.message}</span>
+          </div>
+        )}
         {showLogWarning && (
           <div className="log-warning-banner" role="alert">
             <span>

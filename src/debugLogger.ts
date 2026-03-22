@@ -8,6 +8,7 @@ import {
   usePlanningStore,
   useProjectionStore
 } from './store';
+import { pushChangeEvents, pushLogExport } from './cloudSync';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -346,6 +347,9 @@ export const logStateSnapshot = (): LogResult => {
   persistChangeLog();
   notifySubscribers();
 
+  // Fire-and-forget: sync events to cloud change_log
+  void pushChangeEvents(events);
+
   return { timestamp, eventCount: events.length };
 };
 
@@ -507,6 +511,10 @@ export const exportChangeLogAsJsonl = async () => {
   }
 
   console.info('[financeX][log] Change log JSONL olarak indirildi.');
+
+  // Archive export to cloud (fire-and-forget)
+  void pushLogExport(filename, jsonlContent);
+
   clearStateLogs();
   console.info('[financeX][log] Export sonrası log listesi sıfırlandı.');
 };
