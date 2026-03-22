@@ -1,13 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Dashboard from './Dashboard';
 import EkGelir from './EkGelir';
 import Expenses from './Expenses';
 import InputPanel from './InputPanel';
 import Planning from './Planning';
+import LogsPanel from './LogsPanel';
 import './App.css';
 import appIconUrl from '../src-tauri/icons/icon.png';
+import {
+  ensureAutoStateLogging,
+  exportChangeLogAsJsonl,
+  getChangeLogs,
+  logStateSnapshot,
+  LOG_WARNING_THRESHOLD,
+  LogResult,
+  subscribeStateLogs
+} from './debugLogger';
 
-type TabKey = 'inputs' | 'dashboard' | 'expenses' | 'planning' | 'extra-income';
+type TabKey = 'inputs' | 'dashboard' | 'expenses' | 'planning' | 'extra-income' | 'logs';
 
 interface TabConfig {
   key: TabKey;
@@ -48,11 +58,20 @@ const tabs: TabConfig[] = [
     heading: 'Ek Gelir',
     subtitle: 'Teorik gelir projeksiyonlarını inceleyin.',
     render: () => <EkGelir />
+  },
+  {
+    key: 'logs',
+    label: 'Loglar',
+    heading: 'Durum Logları',
+    subtitle: 'Otomatik logları incele ve dışa aktar.',
+    render: () => <LogsPanel />
   }
 ];
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('inputs');
+  const [lastLog, setLastLog] = useState<LogResult | null>(null);
+  const [showLogWarning, setShowLogWarning] = useState(false);
   const activeContent = useMemo(() => tabs.find((tab) => tab.key === activeTab) ?? tabs[0], [activeTab]);
   const subtitle = activeContent.subtitle ?? 'finance yönetimi masaüstü deneyimi';
   const isInputs = activeContent.key === 'inputs';
@@ -60,9 +79,59 @@ function App() {
   const isDashboard = activeContent.key === 'dashboard';
   const isExpenses = activeContent.key === 'expenses';
   const isExtraIncome = activeContent.key === 'extra-income';
-  const bodyClassName = isInputs || isPlanning || isDashboard || isExpenses || isExtraIncome
+  const isLogs = activeContent.key === 'logs';
+  const bodyClassName = isInputs || isPlanning || isDashboard || isExpenses || isExtraIncome || isLogs
     ? 'workspace__body workspace__body--inputs'
     : 'workspace__body';
+  const lastLogSummary = useMemo(() => {
+    if (!lastLog) {
+      return null;
+    }
+
+    const parsed = new Date(lastLog.timestamp);
+    const timeLabel = Number.isNaN(parsed.getTime())
+      ? lastLog.timestamp
+      : parsed.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const diffLabel = lastLog.eventCount === 0 ? 'değişiklik yok' : `${lastLog.eventCount} değişiklik`;
+
+    return `Son log: ${timeLabel} • ${diffLabel}`;
+  }, [lastLog]);
+
+  const handleLogButtonClick = () => {
+    logStateSnapshot();
+  };
+
+  const handleExportClick = async () => {
+    await exportChangeLogAsJsonl();
+  };
+
+  useEffect(() => {
+    ensureAutoStateLogging();
+    const initialRecords = getChangeLogs();
+    if (initialRecords.length > 0) {
+      const latest = initialRecords[initialRecords.length - 1];
+      if (latest) {
+        setLastLog({ timestamp: latest.timestamp, eventCount: latest.event_count });
+      }
+    }
+    const initialTotal = initialRecords.reduce((s, r) => s + r.event_count, 0);
+    setShowLogWarning(initialTotal >= LOG_WARNING_THRESHOLD);
+
+    const unsubscribe = subscribeStateLogs((records) => {
+      const latest = records[records.length - 1];
+      if (latest) {
+        setLastLog({ timestamp: latest.timestamp, eventCount: latest.event_count });
+      } else {
+        setLastLog(null);
+      }
+      const total = records.reduce((s, r) => s + r.event_count, 0);
+      setShowLogWarning(total >= LOG_WARNING_THRESHOLD);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   return (
     <div className="app-shell">
@@ -87,9 +156,36 @@ function App() {
 
       <main className="workspace">
         <header className="workspace__header">
-          <h1 className="workspace__title">{activeContent.heading}</h1>
-          <span className="workspace__meta">{subtitle}</span>
+          <div className="workspace__heading">
+            <h1 className="workspace__title">{activeContent.heading}</h1>
+            <span className="workspace__meta">{subtitle}</span>
+          </div>
+          {isLogs && (
+            <div className="workspace__actions">
+              <div className="workspace__actions-row">
+                <button type="button" className="log-button" onClick={handleLogButtonClick}>
+                  Durumu Logla
+                </button>
+                <button type="button" className="log-button log-button--secondary" onClick={handleExportClick}>
+                  Logları CSV İndir
+                </button>
+              </div>
+              {lastLogSummary && <span className="log-button__meta">{lastLogSummary}</span>}
+            </div>
+          )}
         </header>
+        {showLogWarning && (
+          <div className="log-warning-banner" role="alert">
+            <span>
+              Log sayısı {LOG_WARNING_THRESHOLD} kayda yaklaştı. CSV indirerek logları sakla; indirme sonrası liste otomatik sıfırlanır.
+            </span>
+            <div className="log-warning-banner__actions">
+              <button type="button" className="log-button log-button--secondary" onClick={handleExportClick}>
+                CSV indir &amp; sıfırla
+              </button>
+            </div>
+          </div>
+        )}
         <section className={bodyClassName}>
           {isInputs ? (
             <InputPanel />

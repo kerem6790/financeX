@@ -11,6 +11,7 @@ import {
   type RowType,
   type Unit
 } from './store';
+import { getChangeLogs, ChangeLogRecord, subscribeStateLogs } from './debugLogger';
 import './InputPanel.css';
 import CategoryChart from './CategoryChart';
 
@@ -31,6 +32,65 @@ type EntryDraft = {
   type: RowType;
   unit: Unit;
   creditLimit: string;
+};
+
+interface EntryHistoryPoint {
+  id: string;
+  timestamp: string;
+  name: string;
+  amount: string;
+  type: RowType;
+  unit: Unit;
+  creditLimit?: string;
+}
+
+const buildEntryHistory = (entryId: string, logs: ChangeLogRecord[]): EntryHistoryPoint[] => {
+  const ordered = [...logs].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const result: EntryHistoryPoint[] = [];
+
+  ordered.forEach((record) => {
+    const entry = record.snapshot.finance.entries.find((item) => item.id === entryId);
+    if (!entry) {
+      return;
+    }
+
+    const last = result[result.length - 1];
+    const currentCredit = entry.creditLimit ?? '';
+    if (
+      last &&
+      last.name === entry.name &&
+      last.amount === entry.amount &&
+      last.type === entry.type &&
+      last.unit === entry.unit &&
+      (last.creditLimit ?? '') === currentCredit
+    ) {
+      return;
+    }
+
+    result.push({
+      id: record.event_id,
+      timestamp: record.timestamp,
+      name: entry.name,
+      amount: entry.amount,
+      type: entry.type,
+      unit: entry.unit,
+      creditLimit: currentCredit
+    });
+  });
+
+  return result;
+};
+
+const formatHistoryTimestamp = (value: string): string => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleString('tr-TR', {
+    dateStyle: 'short',
+    timeStyle: 'short'
+  });
 };
 
 const createEmptyDraft = (): EntryDraft => ({
@@ -83,6 +143,8 @@ const InputPanel = () => {
   const [activeChartSection, setActiveChartSection] = useState<SectionKey | null>(null);
 
   const [draftEntries, setDraftEntries] = useState<Record<string, EntryDraft>>({});
+  const [stateLogsSnapshot, setStateLogsSnapshot] = useState<ChangeLogRecord[]>(() => getChangeLogs());
+  const [historyEntry, setHistoryEntry] = useState<Entry | null>(null);
 
   useEffect(() => {
     setDraftEntries((previous) => {
@@ -99,6 +161,26 @@ const InputPanel = () => {
       return next;
     });
   }, [entries]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeStateLogs((records) => {
+      setStateLogsSnapshot(records);
+    });
+    return unsubscribe;
+  }, []);
+
+  const entryHistoryItems = useMemo(
+    () => (historyEntry ? buildEntryHistory(historyEntry.id, stateLogsSnapshot) : []),
+    [historyEntry, stateLogsSnapshot]
+  );
+
+  const openEntryHistory = useCallback((entry: Entry) => {
+    setHistoryEntry(entry);
+  }, []);
+
+  const closeEntryHistory = useCallback(() => {
+    setHistoryEntry(null);
+  }, []);
 
   const handleDraftChange = useCallback(
     <Key extends keyof EntryDraft>(id: string, key: Key, value: EntryDraft[Key]) => {
@@ -287,6 +369,9 @@ const InputPanel = () => {
       const showDebtHint = draft.type === 'Borç' && creditCardMeta !== null;
       const badgeLabel = UNIT_BADGE_BY_TYPE[draft.type];
       const rowClassName = `input-table__row${isDragging ? ' input-table__row--dragging' : ''}${isDirty ? ' input-table__row--dirty' : ''}`;
+      const hasHistoryRecords = stateLogsSnapshot.some((record) =>
+        record.snapshot.finance.entries.some((item) => item.id === entry.id)
+      );
 
       return (
         <Fragment key={entry.id}>
@@ -339,6 +424,13 @@ const InputPanel = () => {
               <div className="input-table__action-buttons">
                 <button
                   type="button"
+                  className={`input-table__history-button${hasHistoryRecords ? ' input-table__history-button--active' : ''}`}
+                  onClick={() => openEntryHistory(entry)}
+                >
+                  Geçmiş
+                </button>
+                <button
+                  type="button"
                   className="input-table__save"
                   onClick={() => handleSaveEntry(entry.id)}
                   disabled={!isDirty}
@@ -375,8 +467,10 @@ const InputPanel = () => {
       handleDragOver,
       handleDrop,
       handleDragStart,
+      openEntryHistory,
       handleSaveEntry,
-      removeEntry
+      removeEntry,
+      stateLogsSnapshot
     ]
   );
 
@@ -391,6 +485,9 @@ const InputPanel = () => {
       const isDirty = !areEntryAndDraftEqual(entry, draft);
       const badgeLabel = UNIT_BADGE_BY_TYPE[draft.type];
       const rowClassName = `input-table__row${isDragging ? ' input-table__row--dragging' : ''}${isDirty ? ' input-table__row--dirty' : ''}`;
+      const hasHistoryRecords = stateLogsSnapshot.some((record) =>
+        record.snapshot.finance.entries.some((item) => item.id === entry.id)
+      );
 
       const metaContent = meta ? (
         <>
@@ -456,6 +553,13 @@ const InputPanel = () => {
               <div className="input-table__action-buttons">
                 <button
                   type="button"
+                  className={`input-table__history-button${hasHistoryRecords ? ' input-table__history-button--active' : ''}`}
+                  onClick={() => openEntryHistory(entry)}
+                >
+                  Geçmiş
+                </button>
+                <button
+                  type="button"
                   className="input-table__save"
                   onClick={() => handleSaveEntry(entry.id)}
                   disabled={!isDirty}
@@ -481,7 +585,20 @@ const InputPanel = () => {
         </Fragment>
       );
     },
-    [convertToTl, draftEntries, draggedRowId, handleDraftChange, handleDragEnd, handleDragOver, handleDrop, handleDragStart, handleSaveEntry, removeEntry]
+    [
+      convertToTl,
+      draftEntries,
+      draggedRowId,
+      handleDraftChange,
+      handleDragEnd,
+      handleDragOver,
+      handleDrop,
+      handleDragStart,
+      handleSaveEntry,
+      openEntryHistory,
+      removeEntry,
+      stateLogsSnapshot
+    ]
   );
 
   const generalColSpan = 4;
