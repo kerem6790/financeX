@@ -11,7 +11,6 @@ import {
   ensureAutoStateLogging,
   exportChangeLogAsJsonl,
   getChangeLogs,
-  logStateSnapshot,
   LOG_WARNING_THRESHOLD,
   LogResult,
   subscribeStateLogs
@@ -69,6 +68,61 @@ const tabs: TabConfig[] = [
   }
 ];
 
+// ─── Sync indicator ───────────────────────────────────────────────────────────
+
+const formatRelativeTime = (iso: string): string => {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 10000) return 'az önce';
+  if (diff < 60000) return `${Math.floor(diff / 1000)}s önce`;
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} dk önce`;
+  return new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+};
+
+const SyncIndicator = ({ status }: { status: SyncStatus }) => {
+  let dot: 'green' | 'orange' | 'red' | 'grey' | 'blue' = 'grey';
+  let label = 'Bekliyor';
+  let sub: string | null = null;
+
+  switch (status.type) {
+    case 'ok':
+      dot = 'green';
+      label = 'Senkronize';
+      sub = formatRelativeTime(status.at);
+      break;
+    case 'syncing':
+      dot = 'blue';
+      label = 'Kaydediliyor…';
+      break;
+    case 'offline':
+      dot = 'orange';
+      label = 'Çevrimdışı';
+      sub = 'Bağlantı bekleniyor';
+      break;
+    case 'conflict':
+      dot = 'orange';
+      label = 'Çakışma çözüldü';
+      sub = `cloud v${status.cloudVersion}`;
+      break;
+    case 'error':
+      dot = 'red';
+      label = 'Sync hatası';
+      sub = status.message.slice(0, 32);
+      break;
+  }
+
+  return (
+    <div className="sidebar__sync">
+      <div className="sidebar__sync-row">
+        <span className={`sidebar__sync-dot sidebar__sync-dot--${dot}`} />
+        <span className="sidebar__sync-label">{label}</span>
+      </div>
+      {sub && <span className="sidebar__sync-sub">{sub}</span>}
+    </div>
+  );
+};
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('inputs');
   const [lastLog, setLastLog] = useState<LogResult | null>(null);
@@ -98,10 +152,6 @@ function App() {
 
     return `Son log: ${timeLabel} • ${diffLabel}`;
   }, [lastLog]);
-
-  const handleLogButtonClick = () => {
-    logStateSnapshot();
-  };
 
   const handleExportClick = async () => {
     await exportChangeLogAsJsonl();
@@ -157,6 +207,7 @@ function App() {
             </button>
           ))}
         </nav>
+        <SyncIndicator status={syncStatus} />
       </aside>
 
       <main className="workspace">
@@ -165,38 +216,10 @@ function App() {
             <h1 className="workspace__title">{activeContent.heading}</h1>
             <span className="workspace__meta">{subtitle}</span>
           </div>
-          {isLogs && (
-            <div className="workspace__actions">
-              <div className="workspace__actions-row">
-                <button type="button" className="log-button" onClick={handleLogButtonClick}>
-                  Durumu Logla
-                </button>
-                <button type="button" className="log-button log-button--secondary" onClick={handleExportClick}>
-                  Logları CSV İndir
-                </button>
-              </div>
-              {lastLogSummary && <span className="log-button__meta">{lastLogSummary}</span>}
-            </div>
+          {isLogs && lastLogSummary && (
+            <span className="log-button__meta">{lastLogSummary}</span>
           )}
         </header>
-        {syncStatus.type === 'offline' && (
-          <div className="sync-banner sync-banner--offline" role="alert">
-            <span>Çevrimdışısın — değişiklikler yalnızca yerel olarak kaydediliyor, buluta gönderilemiyor.</span>
-          </div>
-        )}
-        {syncStatus.type === 'conflict' && (
-          <div className="sync-banner sync-banner--conflict" role="alert">
-            <span>
-              Çakışma! Bulut daha yeni (v{syncStatus.cloudVersion} &gt; yerel v{syncStatus.localVersion}).
-              Bulut verisi uygulandı.
-            </span>
-          </div>
-        )}
-        {syncStatus.type === 'error' && (
-          <div className="sync-banner sync-banner--error" role="alert">
-            <span>Bulut sync hatası: {syncStatus.message}</span>
-          </div>
-        )}
         {showLogWarning && (
           <div className="log-warning-banner" role="alert">
             <span>
